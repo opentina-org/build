@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: MIT
+  Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+  OpenTina default source manifest.
+
+  clone-depth: optional on <manifest> (default for projects without their own).
+  On <project>: positive integer = shallow clone; omit attribute = use manifest
+  default; use full or 0 on a project to force full clone when manifest sets a default.
+
+  Init from build repo: ./build.sh init
+-->
+<manifest>
+	<remote name="kubuds" fetch="https://github.com/opentina-org/"/>
+
+	<default remote="kubuds" revision="tina-dev"/>
+
+	<project name="trusted-firmware-a" path="trusted-firmware-a"/>
+	<project name="u-boot" path="u-boot"/>
+	<project name="linux" path="linux" clone-depth="1"/>
+	<project name="buildroot" path="buildroot" revision="master"/>
+	<project name="ubuntu" path="ubuntu" revision="master"/>
+	<project name="debian" path="debian" revision="master"/>
+	<project name="meta-opentina" path="meta-opentina" revision="master"/>
+	<project name="awbin" path="awbin"/>
+	<!-- OpenWrt: vendored as a 4th rootfs supplier. Reuses build/sources/{atf,uboot,linux};
+	     only its rootfs (bin/targets/<target>/*-rootfs.tar.gz) is consumed by build_openwrt.
+	     Pinned to the openwrt-25.12 stable branch (not the rolling 'main' snapshot) so the
+	     local fork and any future ./build.sh init stay on the same tree. clone-depth=1 keeps
+	     init small; `git fetch --unshallow` inside sources/openwrt gets full history. -->
+	<project name="openwrt" url="https://github.com/openwrt/openwrt.git" path="openwrt" revision="openwrt-25.12" clone-depth="1"/>
+</manifest>

@@ -1,0 +1,33 @@
+Register a Radxa Cubie A7A device under sunxi/cortexa53.
+
+A733 (A55+A76, ARMv8.2-A) is binary-compatible with cortexa53 userspace.
+build/build.sh consumes the generic rootfs.tar.gz only; the per-device
+kernel/dtb/sdcard.img are discarded since build/sources/linux supplies the
+real sun60i-a733 kernel + DTS.
+---
+ target/linux/sunxi/image/cortexa53.mk | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/target/linux/sunxi/image/cortexa53.mk b/target/linux/sunxi/image/cortexa53.mk
+index 50b286a..fb3e74d 100644
+--- a/target/linux/sunxi/image/cortexa53.mk
++++ b/target/linux/sunxi/image/cortexa53.mk
+@@ -146,3 +146,18 @@ define Device/xunlong_orangepi-zero-plus
+   $(Device/sun50i-h5)
+ endef
+ TARGET_DEVICES += xunlong_orangepi-zero-plus
++
++define Device/radxa_cubie-a7a
++  DEVICE_VENDOR := Radxa
++  DEVICE_MODEL := Cubie A7A (rootfs-only placeholder; kernel/dtb from build/sources)
++  SUPPORTED_DEVICES += radxa-cubie-a7a sun60i-a733-radxa-a7a
++  SOC := sun50i-h618
++  # Pin to a present mainline dtb; OpenWrt's default $(SOC)-cubie-a7a.dtb
++  # has no upstream equivalent and the artifact is unused anyway.
++  SUNXI_DTS := $$(SUNXI_DTS_DIR)sun50i-h618-orangepi-zero3
++  $(Device/sun50i-h618)
++  # Skip sdcard.img.gz: no a7a u-boot package, no boot.scr, and we only
++  # consume the generic rootfs.tar.gz.
++  IMAGES :=
++endef
++TARGET_DEVICES += radxa_cubie-a7a

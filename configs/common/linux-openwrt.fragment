@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+# Kernel options needed by OpenWrt userspace (procd, ubus, netifd, firewall4)
+# merged on top of the board's defconfig when OPENTINA_ROOTFS=openwrt. Everything
+# must be =y: OpenWrt's kmods target their own kernel and are discarded.
+
+# procd / ubus basics (tmpfs /tmp, unix sockets)
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_NET=y
+CONFIG_INET=y
+CONFIG_UNIX=y
+CONFIG_PACKET=y
+CONFIG_IPV6=y
+
+# netifd LAN bridge / VLAN
+CONFIG_BRIDGE=y
+CONFIG_VLAN_8021Q=y
+
+# firewall4 (nftables ruleset: ct, nat/masq, reject, log, limit, fib)
+CONFIG_NETFILTER=y
+CONFIG_NF_CONNTRACK=y
+CONFIG_NF_NAT=y
+CONFIG_NF_TABLES=y
+CONFIG_NF_TABLES_INET=y
+CONFIG_NFT_CT=y
+CONFIG_NFT_NAT=y
+CONFIG_NFT_MASQ=y
+CONFIG_NFT_REDIR=y
+CONFIG_NFT_REJECT=y
+CONFIG_NFT_LOG=y
+CONFIG_NFT_LIMIT=y
+# NFT_FIB_INET 'depends on' (not selects) the per-family fib expressions.
+CONFIG_NFT_FIB_IPV4=y
+CONFIG_NFT_FIB_IPV6=y
+CONFIG_NFT_FIB_INET=y

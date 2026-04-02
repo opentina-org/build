@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+# Kernel options for distro rootfs (systemd / sysvinit + udev + dbus + tmpfs /var/volatile).
+# Merge when OPENTINA_ROOTFS is ubuntu, debian, or yocto (on top of a733_minimal_defconfig).
+
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_NET=y
+CONFIG_INET=y
+CONFIG_UNIX=y
+CONFIG_PACKET=y
+CONFIG_IPV6=y
+CONFIG_DEVPTS=y
+CONFIG_KEYS=y
+CONFIG_PSI=y

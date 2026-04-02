@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+BOARD_NAME="radxa_a7a"
+PRETTY_NAME="Radxa A7A"
+# Toolchain: same default as build2 (gcc-aarch64-linux-gnu). Override if your prefix differs.
+OPENTINA_CROSS_COMPILE="${OPENTINA_CROSS_COMPILE:-aarch64-linux-gnu-}"
+FDT_NAME="sun60i-a733-radxa-a7a.dtb"
+PARTITION_CONFIG="$OPENTINA_BUILD_ROOT/configs/radxa_a7a/partitions.cfg"
+UBOOT_CONFIG="radxa-cubie-a7a_defconfig"
+LINUX_CONFIG="a733_minimal_defconfig"
+
+# Buildroot: defconfig file under this board directory (see br2_opentina.defconfig).
+BUILDROOT_DEFCONFIG="${BUILDROOT_DEFCONFIG:-br2_opentina.defconfig}"
+
+OPENWRT_CONFIG="${OPENWRT_CONFIG:-openwrt.config}"
+OPENWRT_TARGET="${OPENWRT_TARGET:-sunxi}"
+OPENWRT_SUBTARGET="${OPENWRT_SUBTARGET:-cortexa53}"
+OPENWRT_ROOTFS_MB="${OPENWRT_ROOTFS_MB:-2048}"
+
+# extlinux.conf append: must match GPT root partition (see partitions.cfg) and serial console.
+# Kernel cmdline comes from here when U-Boot boots via extlinux / distroboot (not from U-Boot CONFIG_BOOTARGS alone).
+EXTLINUX_ROOT="${EXTLINUX_ROOT:-root=/dev/mmcblk0p4 rw rootwait}"
+EXTLINUX_CONSOLE="${EXTLINUX_CONSOLE:-console=ttyS0,115200 loglevel=9}"
