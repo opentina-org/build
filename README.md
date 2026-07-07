@@ -71,7 +71,7 @@ cd /path/to/build    # 本 README 所在目录
 
 - **配方位置**：`scripts/recipes.sh` 中的 **`build_br2`** / **`clean_br2`**（组件名用 **`br2`**，避免与命令行 **`OPENTINA_ROOTFS=buildroot`** 混淆）。
 - **板级变量**：`configs/<板>/config` 里 **`BUILDROOT_DEFCONFIG`**（默认 `br2_opentina.defconfig`，与 `config` 同目录）。
-- **defconfig 模板**：`configs/*/br2_opentina.defconfig` — AArch64 + Bootlin 外部工具链 + **无内核**（内核由本仓库 `linux` 组件构建）+ **ext2 rootfs**。
+- **defconfig 模板**：`configs/*/br2_opentina.defconfig` — AArch64 + Bootlin 外部工具链 + **无内核**（内核由本仓库 `linux` 组件构建）+ **ext2 rootfs**；busybox init（无 systemd），带 openssh / curl / python3 等调试工具，root 密码 `root`（`configs/common/br2-post-build.sh` 放开 SSH root 密码登录）。
 - **仅构建 rootfs**：`./build.sh <BOARD> build br2`（需已 `init` 克隆 `sources/buildroot`）。
 - **分区**：`configs/*/partitions.cfg` 中 **`partition root`** 使用镜像 **`rootfs.ext2`**，起始偏移 **`148M`**（紧接 128 MiB 的 `boot` 分区之后）。若板卡上块设备节点与 `mmcblk0p4` 不一致，请同步修改板级 **`EXTLINUX_ROOT`**（见下节）。
 
