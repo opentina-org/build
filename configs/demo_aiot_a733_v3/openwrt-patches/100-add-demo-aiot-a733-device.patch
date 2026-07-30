@@ -1,0 +1,37 @@
+Register the DEMO AIOT A733 device under sunxi/cortexa53.
+
+A733 (A55+A76, ARMv8.2-A) is binary-compatible with cortexa53 userspace.
+build/build.sh consumes the generic rootfs.tar.gz only; kernel 6.12 has no
+sun60i-a733 dts, so the shared Device/sun60i-a733 template ships a plain
+gzip'd Image (no FIT/dtb) and skips per-device images. The real kernel/dtb
+come from build/sources/linux.
+---
+ target/linux/sunxi/image/cortexa53.mk | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/target/linux/sunxi/image/cortexa53.mk b/target/linux/sunxi/image/cortexa53.mk
+index 50b286a..a1c2d3e 100644
+--- a/target/linux/sunxi/image/cortexa53.mk
++++ b/target/linux/sunxi/image/cortexa53.mk
+@@ -146,3 +146,21 @@ define Device/xunlong_orangepi-zero-plus
+   $(Device/sun50i-h5)
+ endef
+ TARGET_DEVICES += xunlong_orangepi-zero-plus
++
++define Device/sun60i-a733
++  SOC := sun60i-a733
++  KERNEL_NAME := Image
++  # Kernel 6.12 has no sun60i-a733 dts; these boards boot with the kernel
++  # and dtb from build/sources, so ship a plain gzip'd Image (no FIT/dtb)
++  # and skip per-device images. Only the generic rootfs.tar.gz is consumed.
++  KERNEL := kernel-bin | gzip
++  IMAGES :=
++endef
++
++define Device/demo_aiot_a733
++  DEVICE_VENDOR := Allwinner
++  DEVICE_MODEL := DEMO AIOT A733 (rootfs-only; kernel/dtb from build/sources)
++  SUPPORTED_DEVICES += demo-aiot-a733 sun60i-a733-demo-aiot allwinner-a733-demo-aiot
++  $(Device/sun60i-a733)
++endef
++TARGET_DEVICES += demo_aiot_a733
