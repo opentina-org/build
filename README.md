@@ -151,16 +151,16 @@ cd /path/to/build    # 本 README 所在目录
 - **源码**：manifest 中的 **`openwrt/openwrt`** → `sources/openwrt`（pin 在 **`openwrt-25.12`** 稳定分支，`clone-depth=1`）。也可设环境变量 **`OPENTINA_OPENWRT_DIR`** 指向本地已有的 OpenWrt 树（如已预热 `build_dir/` 的 fork），跳过 manifest 克隆。
 - **配方**：`scripts/recipes.sh` 中的 **`build_openwrt`** / **`clean_openwrt`**；**`OPENTINA_ROOTFS=openwrt`** 时默认组件链使用 **`openwrt`** 替代 **`br2`**。
 - **定位**：OpenWrt 只作为 **rootfs 供应商**——boot 链（ATF / U-Boot / 内核 / dtb）全部复用本仓库组件；OpenWrt 自产的内核、kmod 与 per-device 镜像全部丢弃，只消费 target 级 **`openwrt-*-rootfs.tar.gz`**。
-- **板级补丁**：`configs/<board>/openwrt-patches/*.patch` 在 defconfig 前按字典序 `git apply` 到 OpenWrt 树（应用前先把补丁涉及文件 reset 回 HEAD，保证可重复执行）。
+- **OpenWrt 补丁**：先应用 `configs/common/openwrt-patches/*.patch`，再应用 `configs/<board>/openwrt-patches/*.patch`；每组内按字典序 `git apply` 到 OpenWrt 树（应用前先把补丁涉及文件 reset 回 HEAD，保证可重复执行）。
 - **配置**（板级 `config`）：
   - **`OPENWRT_CONFIG`**：板级目录下的 `.config` 种子（如 `openwrt.config`），拷贝后经 `make defconfig` 归一化
-  - **`OPENWRT_TARGET`** / **`OPENWRT_SUBTARGET`**：默认 `sunxi` / `cortexa53`
+  - **`OPENWRT_TARGET`** / **`OPENWRT_SUBTARGET`**：默认 `sunxi` / `armv8`
   - **`OPENWRT_ROOTFS_MB`**：`mkfs.ext4` 镜像大小，默认 `2048`（与 `partitions.cfg` root 分区一致）
   - **`OPENWRT_JOBS`**：覆盖 OpenWrt make 并行数（默认 `JOBS`）
 - **产物**：`bin/targets/<TGT>/<SUBTGT>/openwrt-*-rootfs.tar.gz` 解包后 `mkfs.ext4 -d` 生成 **`output/<BOARD>/rootfs.ext2`**。解包时会**删除 `lib/modules/`**——OpenWrt 的 kmod 按它自己的内核 ABI 编译（如 6.12.x），与 `sources/linux` 内核（6.18+）永远不匹配。
 - **内核**：**`OPENTINA_ROOTFS=openwrt`** 构建 **`linux`** 时合并 **`configs/common/linux-openwrt.fragment`**（tmpfs / unix socket / bridge / nftables 等 builtin，供 procd / netifd / firewall4 使用；kmod 已丢弃，缺特性只能往 fragment 加 builtin）。可用 **`LINUX_OPENWRT_FRAGMENT`** 覆盖路径。
 - **示例**：`./build.sh <BOARD> openwrt build`；仅 rootfs：`./build.sh <BOARD> openwrt build openwrt`。首次构建会 bootstrap OpenWrt 自带工具链，耗时较长。
-- **注意**：尚未在真实硬件验证（无 A7A 在手）；`radxa_cubie-a7a` 在 OpenWrt 里是 rootfs-only 占位设备（`IMAGES :=`，不产 per-device 镜像），见 `configs/radxa_a7a/openwrt-patches/`。
+- **注意**：OpenWrt rootfs 已在 A7A 真机完成启动验证；`armv8` subtarget 与两个 A733 设备定义位于 `configs/common/openwrt-patches/`，设备仍为 rootfs-only 占位（`IMAGES :=`，不产 per-device 镜像）。
 
 ---
 

@@ -14,7 +14,7 @@ BUILDROOT_DEFCONFIG="${BUILDROOT_DEFCONFIG:-br2_opentina.defconfig}"
 
 OPENWRT_CONFIG="${OPENWRT_CONFIG:-openwrt.config}"
 OPENWRT_TARGET="${OPENWRT_TARGET:-sunxi}"
-OPENWRT_SUBTARGET="${OPENWRT_SUBTARGET:-cortexa53}"
+OPENWRT_SUBTARGET="${OPENWRT_SUBTARGET:-armv8}"
 OPENWRT_ROOTFS_MB="${OPENWRT_ROOTFS_MB:-2048}"
 
 # extlinux.conf append: must match GPT root partition (see partitions.cfg) and serial console.
