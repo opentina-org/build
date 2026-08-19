@@ -268,9 +268,9 @@ build_yocto() {
 	export MACHINE="$machine"
 
 	case "$profile" in
-	minimal | qt) ;;
+	minimal | qt | hmi) ;;
 	*)
-		error "OPENTINA_YOCTO_PROFILE must be minimal or qt (got: $profile)"
+		error "OPENTINA_YOCTO_PROFILE must be minimal, qt or hmi (got: $profile)"
 		;;
 	esac
 
@@ -298,6 +298,10 @@ build_yocto() {
 	qt)
 		build_rel="build-opentina-qt"
 		image_basename="opentina-image-qt"
+		;;
+	hmi)
+		build_rel="build-opentina-hmi"
+		image_basename="opentina-image-hmi"
 		;;
 	esac
 
