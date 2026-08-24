@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	bc bison build-essential bzip2 ca-certificates chrpath cpio curl \
-	device-tree-compiler dosfstools fakeroot file flex g++-aarch64-linux-gnu \
+	device-tree-compiler dosfstools e2fsprogs fakeroot flex g++-aarch64-linux-gnu \
 	gcc-aarch64-linux-gnu genimage git libgnutls28-dev libssl-dev \
 	make mtools patch perl python3 python3-dev python3-setuptools rsync \
 	swig u-boot-tools unzip wget xz-utils \

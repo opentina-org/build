@@ -90,6 +90,26 @@ build_linux() {
 
 	cp "$linuxPath"/arch/arm64/boot/Image.gz "$outDir"
 	cp "$linuxPath"/arch/arm64/boot/dts/allwinner/"$FDT_NAME" "$outDir"
+
+	# Install all built modules (*.ko) for rootfs
+	local mod_root="$outDir/modules-root"
+	local mod_staging="$OPENTINA_BUILD_ROOT/.staging-linux-modules"
+	rm -rf "$mod_root" "$mod_staging"
+	# Ensure modules.order exists (required by modules_install).
+	if [ ! -f "$linuxPath/modules.order" ]; then
+		make ARCH=arm64 CROSS_COMPILE="$cc" modules \
+			|| error "Linux modules build failed"
+	fi
+	make ARCH=arm64 CROSS_COMPILE="$cc" modules_install \
+		INSTALL_MOD_PATH="$mod_root" INSTALL_MOD_STRIP=1 \
+		|| error "Linux modules_install failed"
+	cp -a "$mod_root" "$mod_staging"
+	echo "Linux modules staged at $mod_staging/lib/modules"
+	# Stage into Buildroot TARGET_DIR when present (partial rebuild / update_rootfs).
+	if [ -d "$buildrootPath/output/target" ]; then
+		"$OPENTINA_BUILD_ROOT/configs/common/install-linux-modules.sh" \
+			"$buildrootPath/output/target"
+	fi
 }
 
 clean_linux() {
@@ -100,6 +120,29 @@ clean_linux() {
 	make ARCH=arm64 CROSS_COMPILE="$cc" distclean
 	rm -f "$outDir"/Image.gz
 	rm -f "$outDir/$FDT_NAME"
+	rm -rf "$outDir/modules-root"
+	rm -rf "$OPENTINA_BUILD_ROOT/.staging-linux-modules"
+}
+
+_linux_modules_warn_if_missing() {
+	if [ ! -d "$OPENTINA_BUILD_ROOT/.staging-linux-modules/lib/modules" ]; then
+		yellow_msg "No staged Linux modules; build linux first so ${1:-rootfs} gets *.ko"
+	fi
+}
+
+_fetch_powervr_firmware() {
+	local fw_script="$OPENTINA_BUILD_ROOT/configs/common/install-powervr-firmware.sh"
+	[ -x "$fw_script" ] || error "Missing $fw_script"
+	"$fw_script" --fetch || error "PowerVR firmware fetch failed"
+}
+
+# Overlay staged *.ko and PowerVR firmware onto $outDir/rootfs.ext2
+# (ubuntu / debian / yocto packed ext4).
+_install_linux_modules_into_out_rootfs() {
+	local img="${1:-$outDir/rootfs.ext2}"
+	_fetch_powervr_firmware
+	"$OPENTINA_BUILD_ROOT/configs/common/install-linux-modules-into-image.sh" "$img" \
+		|| error "Failed to install Linux modules/firmware into $img"
 }
 
 # Buildroot rootfs (br2 component — not the same as OPENTINA_ROOTFS=buildroot CLI token).
@@ -111,6 +154,13 @@ build_br2() {
 
 	cd "$buildrootPath"
 	make defconfig BR2_DEFCONFIG="$br2_cfg" || error "Buildroot defconfig failed"
+
+	_linux_modules_warn_if_missing "Buildroot rootfs"
+
+	# PowerVR firmware for request_firmware() → /lib/firmware/powervr/.
+	# Fetch into dl/firmware before make; br2-post-build.sh installs it.
+	_fetch_powervr_firmware
+
 	make || error "Buildroot make failed"
 
 	local img="$buildrootPath/output/images/rootfs.ext2"
@@ -166,6 +216,7 @@ build_ubuntu() {
 	local arch="${UBUNTU_ARCH:-arm64}"
 
 	_resolve_oem_dir
+	_linux_modules_warn_if_missing "Ubuntu rootfs"
 
 	cd "$ubuntuPath"
 
@@ -195,6 +246,7 @@ build_ubuntu() {
 	[ -f "$img" ] || img="$ubuntuPath/ubuntu-rootfs.ext4"
 	[ -f "$img" ] || error "Expected $ubuntuPath/out/*.ext4 (buildx) or $ubuntuPath/ubuntu-rootfs.ext4 (legacy) after Ubuntu rootfs build."
 	cp -f "$img" "$outDir/rootfs.ext2"
+	_install_linux_modules_into_out_rootfs
 }
 
 clean_ubuntu() {
@@ -215,6 +267,7 @@ build_debian() {
 	local arch="${DEBIAN_ARCH:-arm64}"
 
 	_resolve_oem_dir
+	_linux_modules_warn_if_missing "Debian rootfs"
 
 	cd "$debianPath"
 
@@ -242,6 +295,7 @@ build_debian() {
 	img=$(ls -t "$debianPath"/out/*.ext4 2>/dev/null | head -1)
 	[ -f "$img" ] || error "Expected $debianPath/out/*.ext4 after Debian build (MAKE_EXT4=1)."
 	cp -f "$img" "$outDir/rootfs.ext2"
+	_install_linux_modules_into_out_rootfs
 }
 
 clean_debian() {
@@ -286,6 +340,8 @@ build_yocto() {
 		esac
 	fi
 
+	_linux_modules_warn_if_missing "Yocto rootfs"
+
 	echo "Yocto profile=$profile MACHINE=$machine OPENTINA_YOCTO_DIR=$OPENTINA_YOCTO_DIR"
 	./opentina-build.sh "$profile" || error "opentina-build.sh $profile failed"
 
@@ -309,6 +365,7 @@ build_yocto() {
 	[ -f "$img" ] || error "Expected ext4 under ${deploy}/ (bitbake ${image_basename})"
 	cp -f "$img" "$outDir/rootfs.ext2"
 	echo "Copied Yocto rootfs: $img -> $outDir/rootfs.ext2"
+	_install_linux_modules_into_out_rootfs
 }
 
 clean_yocto() {
@@ -406,28 +463,50 @@ build_openwrt() {
 	mkdir -p "$stage"
 
 	local mb="${OPENWRT_ROOTFS_MB:-2048}"
+	local mod_staging="$OPENTINA_BUILD_ROOT/.staging-linux-modules"
+	local fw_script="$OPENTINA_BUILD_ROOT/configs/common/install-powervr-firmware.sh"
+	local fw_cache="${OPENTINA_FIRMWARE_CACHE:-$OPENTINA_BUILD_ROOT/dl/firmware/powervr}"
 	rm -f "$outDir/rootfs.ext2"
+	_linux_modules_warn_if_missing "OpenWrt rootfs"
+	_fetch_powervr_firmware
 
-	# Drop lib/modules: OpenWrt's kmods are ABI-bound to its own kernel and
-	# can't load on build/sources/linux (we put needed CONFIGs as =y via
-	# linux-openwrt.fragment). Extract + mkfs share a fakeroot/docker root
-	# identity so tarball ownership reaches the ext4 inodes.
-	local mkimg='tar -xpf "$1" -C "$2" && rm -rf "$2/lib/modules" && mkfs.ext4 -d "$2" -L rootfs -m 0 -F "$3" "$4" >/dev/null'
+	# Extract + mkfs.ext4 -d must run with a root identity: the tarball
+	# records root-owned files, and a plain-user extraction would bake the
+	# build user's uid into every inode of the image. Both steps share one
+	# fakeroot session (Buildroot-style) so the faked ownership survives into
+	# mkfs; the docker fallback gets real root instead. OpenWrt's own kmods
+	# target a different kernel ABI (e.g. 6.12.x) and cannot load on
+	# sources/linux, so they are dropped and replaced with staged OpenTina
+	# modules when linux was built first. PowerVR firmware is installed the
+	# same way as Buildroot (br2-post-build.sh).
+	#
+	# $1=rootfs_tar $2=stage $3=rootfs.ext2 $4=size $5=mod_staging $6=fw_script
+	local mkimg='tar -xpf "$1" -C "$2" && rm -rf "$2/lib/modules" && if [ -d "$5/lib/modules" ]; then mkdir -p "$2/lib/modules" && cp -a "$5/lib/modules/." "$2/lib/modules/" && chown -R 0:0 "$2/lib/modules"; fi && "$6" "$2" && mkfs.ext4 -d "$2" -L rootfs -m 0 -F "$3" "$4" >/dev/null'
 	echo "Packing OpenWrt rootfs: $rootfs_tar -> $outDir/rootfs.ext2 (${mb}M)"
 	if command -v mkfs.ext4 >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
-		sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" \
+		sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" \
 			|| error "OpenWrt rootfs image build failed"
 	elif command -v mkfs.ext4 >/dev/null 2>&1 && command -v fakeroot >/dev/null 2>&1; then
-		fakeroot -- sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" \
+		fakeroot -- sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" \
 			|| error "OpenWrt rootfs image build failed (fakeroot)"
 	elif command -v docker >/dev/null 2>&1; then
 		local img="${OPENTINA_MKE2FS_IMAGE:-opentina-buildenv:24.04}"
+		local docker_mod_vol=()
+		local docker_mod_copy=':'
 		docker image inspect "$img" >/dev/null 2>&1 \
 			|| docker build -t "$img" -f "$OPENTINA_BUILD_ROOT/docker/Dockerfile" "$OPENTINA_BUILD_ROOT/docker" \
 			|| error "failed to build $img"
+		if [ -d "$mod_staging/lib/modules" ]; then
+			docker_mod_vol=(-v "$mod_staging:/staging:ro")
+			docker_mod_copy='mkdir -p /stage/lib/modules && cp -a /staging/lib/modules/. /stage/lib/modules/ && chown -R 0:0 /stage/lib/modules'
+		fi
 		docker run --rm \
-			-v "$rootfs_tar:/rootfs.tar.gz:ro" -v "$outDir:/out" --user 0:0 "$img" \
-			sh -c "mkdir -p /stage && tar -xpf /rootfs.tar.gz -C /stage && rm -rf /stage/lib/modules && mkfs.ext4 -d /stage -L rootfs -m 0 -F /out/rootfs.ext2 ${mb}M >/dev/null && chown $(id -u):$(id -g) /out/rootfs.ext2" \
+			-e OPENTINA_FIRMWARE_CACHE=/fwcache \
+			-v "$rootfs_tar:/rootfs.tar.gz:ro" -v "$outDir:/out" \
+			-v "$fw_script:/install-powervr-firmware.sh:ro" \
+			-v "$fw_cache:/fwcache:ro" \
+			"${docker_mod_vol[@]}" --user 0:0 "$img" \
+			sh -c "mkdir -p /stage && tar -xpf /rootfs.tar.gz -C /stage && rm -rf /stage/lib/modules && ${docker_mod_copy} && /install-powervr-firmware.sh /stage && mkfs.ext4 -d /stage -L rootfs -m 0 -F /out/rootfs.ext2 ${mb}M >/dev/null && chown $(id -u):$(id -g) /out/rootfs.ext2" \
 			|| error "docker mkfs.ext4 failed for OpenWrt rootfs"
 	else
 		error "Need mkfs.ext4 plus root/fakeroot, or docker, to build the OpenWrt rootfs image"

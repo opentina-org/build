@@ -13,5 +13,5 @@ OPENWRT_SUBTARGET="${OPENWRT_SUBTARGET:-cortexa53}"
 OPENWRT_ROOTFS_MB="${OPENWRT_ROOTFS_MB:-2048}"
 # Yocto (meta-opentina): MACHINE matches sun60i-a733-aiot.dtb / aiotdemo U-Boot.
 OPENTINA_YOCTO_MACHINE="${OPENTINA_YOCTO_MACHINE:-a733-aiot}"
-EXTLINUX_ROOT="${EXTLINUX_ROOT:-root=/dev/mmcblk0p4 rw rootwait}"
+EXTLINUX_ROOT="${EXTLINUX_ROOT:-root=/dev/mmcblk0p4 earlycon rw rootwait}"
 EXTLINUX_CONSOLE="${EXTLINUX_CONSOLE:-console=ttyS0,115200 loglevel=9}"
