@@ -1,5 +1,32 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+opteePath="$sdkRoot/optee_os"
+
+build_optee() {
+	local cc tee_raw
+	cc=$(opentina_cross_compile) || error "Set OPENTINA_CROSS_COMPILE or install gcc-aarch64-linux-gnu."
+
+	[ -d "$opteePath" ] || error "Missing OP-TEE tree: $opteePath (./build.sh init)"
+
+	cd "$opteePath"
+
+	# tee-raw.bin: no OP-TEE v1 header; U-Boot FIT loads it at SUNXI_BL32_BASE.
+	make PLATFORM=sunxi-sun60i_a733 \
+		CROSS_COMPILE64="$cc" \
+		CFG_TEE_CORE_LOG_LEVEL=2 \
+		O="$outDir/optee" \
+		|| error "OP-TEE build failed"
+
+	tee_raw="$outDir/optee/core/tee-raw.bin"
+	[ -f "$tee_raw" ] || error "Missing OP-TEE image: $tee_raw"
+	cp "$tee_raw" "$outDir/tee.bin"
+}
+
+clean_optee() {
+	rm -rf "$outDir/optee"
+	rm -f "$outDir/tee.bin"
+}
+
 atfPath="$sdkRoot/trusted-firmware-a"
 
 build_atf() {
@@ -8,7 +35,8 @@ build_atf() {
 
 	cd "$atfPath"
 
-	make PLAT=sun60i_a733 CROSS_COMPILE="$cc" all || error "ATF build failed"
+	# SPD=opteed: BL31 hands off to preloaded BL32 (OP-TEE at DRAM base) then BL33.
+	make PLAT=sun60i_a733 SPD=opteed CROSS_COMPILE="$cc" all || error "ATF build failed"
 }
 
 clean_atf() {
@@ -22,19 +50,26 @@ clean_atf() {
 ubootPath="$sdkRoot/u-boot"
 build_uboot() {
 	requires "atf"
+	requires "optee"
 
-	local cc bl31
+	local cc bl31 tee
 	cc=$(opentina_cross_compile) || error "Set OPENTINA_CROSS_COMPILE or install gcc-aarch64-linux-gnu."
 	bl31="$sdkRoot/trusted-firmware-a/build/sun60i_a733/release/bl31.bin"
+	tee="$outDir/tee.bin"
 	[ -f "$bl31" ] || error "Missing BL31: $bl31 (build atf first)"
+	[ -f "$tee" ] || error "Missing TEE: $tee (build optee first)"
 
 	cd "$ubootPath"
 
 	# Match build2: same CROSS_COMPILE as TF-A/Linux; disable host-only mkeficapsule (gnutls).
-	make CROSS_COMPILE="$cc" BL31="$bl31" "$UBOOT_CONFIG" || error "U-Boot defconfig failed"
+	# TEE= is consumed by binman (-a tee-os-path) and packed into the SPL FIT as BL32.
+	make CROSS_COMPILE="$cc" BL31="$bl31" TEE="$tee" "$UBOOT_CONFIG" || error "U-Boot defconfig failed"
 	"$ubootPath/scripts/config" --file "$ubootPath/.config" --disable TOOLS_MKEFICAPSULE
-	make CROSS_COMPILE="$cc" BL31="$bl31" olddefconfig >/dev/null || error "U-Boot olddefconfig failed"
-	make CROSS_COMPILE="$cc" BL31="$bl31" || error "U-Boot build failed"
+	# SPL FIT (BL31+OP-TEE+U-Boot) is >1MiB; keep simple heap large enough.
+	"$ubootPath/scripts/config" --file "$ubootPath/.config" \
+		--set-val SPL_STACK_R_MALLOC_SIMPLE_LEN 0x200000
+	make CROSS_COMPILE="$cc" BL31="$bl31" TEE="$tee" olddefconfig >/dev/null || error "U-Boot olddefconfig failed"
+	make CROSS_COMPILE="$cc" BL31="$bl31" TEE="$tee" || error "U-Boot build failed"
 
 	[ -f "$ubootPath/u-boot-sunxi-with-spl.bin" ] || error "Missing $ubootPath/u-boot-sunxi-with-spl.bin"
 	[ -f "$ubootPath/u-boot-sunxi-with-spl.fit.fit" ] || error "Missing $ubootPath/u-boot-sunxi-with-spl.fit.fit"
@@ -66,13 +101,16 @@ build_linux() {
 	echo "$LINUX_CONFIG"
 	make ARCH=arm64 CROSS_COMPILE="$cc" "$LINUX_CONFIG" || error "Linux defconfig failed"
 
+	local kfrags=()
+	local opteefrag="${LINUX_OPTEE_FRAGMENT:-$OPENTINA_BUILD_ROOT/configs/common/linux-optee.fragment}"
+	[ -f "$opteefrag" ] || error "Missing kernel fragment for OP-TEE: $opteefrag"
+	kfrags+=("$opteefrag")
+
 	case "${OPENTINA_ROOTFS:-buildroot}" in
 	ubuntu | debian | yocto)
 		local kfrag="${LINUX_SYSTEMD_FRAGMENT:-$OPENTINA_BUILD_ROOT/configs/common/linux-systemd.fragment}"
 		[ -f "$kfrag" ] || error "Missing kernel fragment for distro rootfs: $kfrag"
-		echo "Merging $kfrag (OPENTINA_ROOTFS=${OPENTINA_ROOTFS})"
-		./scripts/kconfig/merge_config.sh -m -r -O . .config "$kfrag" || error "merge_config.sh failed"
-		make ARCH=arm64 CROSS_COMPILE="$cc" olddefconfig || error "Linux olddefconfig failed"
+		kfrags+=("$kfrag")
 		;;
 	openwrt)
 		# OpenWrt's kmods are discarded (ABI mismatch with this kernel), so
@@ -80,11 +118,13 @@ build_linux() {
 		# netifd, ...) must be built-in.
 		local owfrag="${LINUX_OPENWRT_FRAGMENT:-$OPENTINA_BUILD_ROOT/configs/common/linux-openwrt.fragment}"
 		[ -f "$owfrag" ] || error "Missing kernel fragment for OpenWrt rootfs: $owfrag"
-		echo "Merging $owfrag (OPENTINA_ROOTFS=openwrt)"
-		./scripts/kconfig/merge_config.sh -m -r -O . .config "$owfrag" || error "merge_config.sh failed"
-		make ARCH=arm64 CROSS_COMPILE="$cc" olddefconfig || error "Linux olddefconfig failed"
+		kfrags+=("$owfrag")
 		;;
 	esac
+
+	echo "Merging ${kfrags[*]} (OPENTINA_ROOTFS=${OPENTINA_ROOTFS:-buildroot})"
+	./scripts/kconfig/merge_config.sh -m -r -O . .config "${kfrags[@]}" || error "merge_config.sh failed"
+	make ARCH=arm64 CROSS_COMPILE="$cc" olddefconfig || error "Linux olddefconfig failed"
 
 	make ARCH=arm64 CROSS_COMPILE="$cc" || error "Linux build failed"
 
@@ -153,15 +193,34 @@ build_br2() {
 	[ -f "$br2_cfg" ] || error "Missing Buildroot defconfig: $br2_cfg"
 
 	cd "$buildrootPath"
-	make defconfig BR2_DEFCONFIG="$br2_cfg" || error "Buildroot defconfig failed"
+	# Drop a leftover BR2_EXTERNAL from older builds (configs/br2-external).
+	# In-tree optee-test / optee-examples use OPENTINA_OPTEE_EXPORT; do not
+	# enable BR2_TARGET_OPTEE_OS.
+	make BR2_EXTERNAL= defconfig BR2_DEFCONFIG="$br2_cfg" \
+		|| error "Buildroot defconfig failed"
 
 	_linux_modules_warn_if_missing "Buildroot rootfs"
+
+	# TAs + TA SDK from the OpenTina optee component (not BR2_TARGET_OPTEE_OS).
+	export OPENTINA_OPTEE_EXPORT="${outDir%/}/optee"
+	if [ ! -f "$OPENTINA_OPTEE_EXPORT/export-ta_arm64/mk/ta_dev_kit.mk" ] &&
+		[ ! -f "$OPENTINA_OPTEE_EXPORT/export-ta_arm32/mk/ta_dev_kit.mk" ]; then
+		error "xtest/optee-examples need the OP-TEE TA devkit; build optee first (./build.sh $boardName build optee)"
+	fi
+	# TA signing (sign_encrypt.py) needs distro python3-cryptography, not conda.
+	if ! /usr/bin/python3 -c "import cryptography" >/dev/null 2>&1; then
+		error "Missing python3 cryptography module. Install: sudo apt install python3-cryptography"
+	fi
+	if ! compgen -G "$OPENTINA_OPTEE_EXPORT/export-ta_*/ta/*.ta" >/dev/null 2>&1 &&
+		! compgen -G "$OPENTINA_OPTEE_EXPORT/ta/*/*.ta" >/dev/null 2>&1; then
+		yellow_msg "No in-tree OP-TEE TAs under $OPENTINA_OPTEE_EXPORT"
+	fi
 
 	# PowerVR firmware for request_firmware() → /lib/firmware/powervr/.
 	# Fetch into dl/firmware before make; br2-post-build.sh installs it.
 	_fetch_powervr_firmware
 
-	make || error "Buildroot make failed"
+	make BR2_EXTERNAL= || error "Buildroot make failed"
 
 	local img="$buildrootPath/output/images/rootfs.ext2"
 	[ -f "$img" ] || error "Expected $img after Buildroot build (check BR2_TARGET_ROOTFS_EXT2)."
@@ -171,7 +230,7 @@ build_br2() {
 clean_br2() {
 	cd "$buildrootPath"
 	if [ -f .config ]; then
-		make clean
+		make BR2_EXTERNAL= clean
 	fi
 	rm -f "$outDir/rootfs.ext2"
 }
@@ -495,7 +554,9 @@ build_openwrt() {
 	local mb="${OPENWRT_ROOTFS_MB:-2048}"
 	local mod_staging="$OPENTINA_BUILD_ROOT/.staging-linux-modules"
 	local fw_script="$OPENTINA_BUILD_ROOT/configs/common/install-powervr-firmware.sh"
+	local ta_script="$OPENTINA_BUILD_ROOT/configs/common/install-optee-ta.sh"
 	local fw_cache="${OPENTINA_FIRMWARE_CACHE:-$OPENTINA_BUILD_ROOT/dl/firmware/powervr}"
+	local optee_export="${OPENTINA_OPTEE_EXPORT:-${outDir%/}/optee}"
 	rm -f "$outDir/rootfs.ext2"
 	_linux_modules_warn_if_missing "OpenWrt rootfs"
 	_fetch_powervr_firmware
@@ -507,22 +568,25 @@ build_openwrt() {
 	# mkfs; the docker fallback gets real root instead. OpenWrt's own kmods
 	# target a different kernel ABI (e.g. 6.12.x) and cannot load on
 	# sources/linux, so they are dropped and replaced with staged OpenTina
-	# modules when linux was built first. PowerVR firmware is installed the
-	# same way as Buildroot (br2-post-build.sh).
+	# modules when linux was built first. PowerVR firmware and OP-TEE TAs
+	# are installed the same way as Buildroot (br2-post-build.sh).
 	#
-	# $1=rootfs_tar $2=stage $3=rootfs.ext2 $4=size $5=mod_staging $6=fw_script
-	local mkimg='tar -xpf "$1" -C "$2" && rm -rf "$2/lib/modules" && if [ -d "$5/lib/modules" ]; then mkdir -p "$2/lib/modules" && cp -a "$5/lib/modules/." "$2/lib/modules/" && chown -R 0:0 "$2/lib/modules"; fi && "$6" "$2" && mkfs.ext4 -d "$2" -L rootfs -m 0 -F "$3" "$4" >/dev/null'
+	# $1=rootfs_tar $2=stage $3=rootfs.ext2 $4=size $5=mod_staging
+	# $6=fw_script $7=ta_script $8=optee_export
+	local mkimg='tar -xpf "$1" -C "$2" && rm -rf "$2/lib/modules" && if [ -d "$5/lib/modules" ]; then mkdir -p "$2/lib/modules" && cp -a "$5/lib/modules/." "$2/lib/modules/" && chown -R 0:0 "$2/lib/modules"; fi && "$6" "$2" && OPENTINA_OPTEE_EXPORT="$8" bash "$7" "$2" && mkfs.ext4 -d "$2" -L rootfs -m 0 -F "$3" "$4" >/dev/null'
 	echo "Packing OpenWrt rootfs: $rootfs_tar -> $outDir/rootfs.ext2 (${mb}M)"
 	if command -v mkfs.ext4 >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
-		sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" \
+		sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" "$ta_script" "$optee_export" \
 			|| error "OpenWrt rootfs image build failed"
 	elif command -v mkfs.ext4 >/dev/null 2>&1 && command -v fakeroot >/dev/null 2>&1; then
-		fakeroot -- sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" \
+		fakeroot -- sh -c "$mkimg" mkimg "$rootfs_tar" "$stage" "$outDir/rootfs.ext2" "${mb}M" "$mod_staging" "$fw_script" "$ta_script" "$optee_export" \
 			|| error "OpenWrt rootfs image build failed (fakeroot)"
 	elif command -v docker >/dev/null 2>&1; then
 		local img="${OPENTINA_MKE2FS_IMAGE:-opentina-buildenv:24.04}"
 		local docker_mod_vol=()
 		local docker_mod_copy=':'
+		local docker_optee_vol=()
+		local docker_optee_env=(-e OPENTINA_OPTEE_EXPORT=)
 		docker image inspect "$img" >/dev/null 2>&1 \
 			|| docker build -t "$img" -f "$OPENTINA_BUILD_ROOT/docker/Dockerfile" "$OPENTINA_BUILD_ROOT/docker" \
 			|| error "failed to build $img"
@@ -530,13 +594,19 @@ build_openwrt() {
 			docker_mod_vol=(-v "$mod_staging:/staging:ro")
 			docker_mod_copy='mkdir -p /stage/lib/modules && cp -a /staging/lib/modules/. /stage/lib/modules/ && chown -R 0:0 /stage/lib/modules'
 		fi
+		if [ -d "$optee_export" ]; then
+			docker_optee_vol=(-v "$optee_export:/optee:ro")
+			docker_optee_env=(-e OPENTINA_OPTEE_EXPORT=/optee)
+		fi
 		docker run --rm \
 			-e OPENTINA_FIRMWARE_CACHE=/fwcache \
+			"${docker_optee_env[@]}" \
 			-v "$rootfs_tar:/rootfs.tar.gz:ro" -v "$outDir:/out" \
 			-v "$fw_script:/install-powervr-firmware.sh:ro" \
+			-v "$ta_script:/install-optee-ta.sh:ro" \
 			-v "$fw_cache:/fwcache:ro" \
-			"${docker_mod_vol[@]}" --user 0:0 "$img" \
-			sh -c "mkdir -p /stage && tar -xpf /rootfs.tar.gz -C /stage && rm -rf /stage/lib/modules && ${docker_mod_copy} && /install-powervr-firmware.sh /stage && mkfs.ext4 -d /stage -L rootfs -m 0 -F /out/rootfs.ext2 ${mb}M >/dev/null && chown $(id -u):$(id -g) /out/rootfs.ext2" \
+			"${docker_mod_vol[@]}" "${docker_optee_vol[@]}" --user 0:0 "$img" \
+			sh -c "mkdir -p /stage && tar -xpf /rootfs.tar.gz -C /stage && rm -rf /stage/lib/modules && ${docker_mod_copy} && /install-powervr-firmware.sh /stage && bash /install-optee-ta.sh /stage && mkfs.ext4 -d /stage -L rootfs -m 0 -F /out/rootfs.ext2 ${mb}M >/dev/null && chown $(id -u):$(id -g) /out/rootfs.ext2" \
 			|| error "docker mkfs.ext4 failed for OpenWrt rootfs"
 	else
 		error "Need mkfs.ext4 plus root/fakeroot, or docker, to build the OpenWrt rootfs image"

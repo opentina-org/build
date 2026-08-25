@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+# OP-TEE driver (SMC to BL32). Merged for every rootfs on top of the board defconfig.
+# DTB: firmware { optee { compatible = "linaro,optee-tz"; method = "smc"; } };
+
+CONFIG_TEE=y
+CONFIG_OPTEE=y

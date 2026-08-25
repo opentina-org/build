@@ -15,7 +15,7 @@ sudo apt install -y \
     bc bison build-essential ca-certificates chrpath cpio device-tree-compiler \
     dosfstools flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
     genimage git libgnutls28-dev libssl-dev make mtools patch perl \
-    python3 python3-setuptools rsync swig u-boot-tools wget xz-utils
+    python3 python3-cryptography python3-pyelftools python3-setuptools rsync swig u-boot-tools wget xz-utils
 ```
 
 其中 **`chrpath`** 为 Yocto/BitBake `HOSTTOOLS` 所需。若未装系统包，`sources/meta-opentina/opentina-build.sh` 会尝试解压到 `~/.local/bin`。
@@ -63,7 +63,9 @@ cd /path/to/build    # 本 README 所在目录
 ./build.sh <BOARD_NAME> build
 ```
 
-产物示例：`output/radxa_a7a/sdcard.img`、`rootfs.ext2`、`Image.gz`、dtb、`u-boot.fex` 等。
+产物示例：`output/radxa_a7a/sdcard.img`、`rootfs.ext2`、`Image.gz`、dtb、`u-boot.fex`、`tee.bin` 等。
+
+默认启动链：`BROM → boot0 → SPL FIT（BL31 + BL32/OP-TEE + U-Boot）→ TF-A → OP-TEE → U-Boot → Linux`。
 
 ---
 
@@ -71,7 +73,9 @@ cd /path/to/build    # 本 README 所在目录
 
 - **配方位置**：`scripts/recipes.sh` 中的 **`build_br2`** / **`clean_br2`**（组件名用 **`br2`**，避免与命令行 **`OPENTINA_ROOTFS=buildroot`** 混淆）。
 - **板级变量**：`configs/<板>/config` 里 **`BUILDROOT_DEFCONFIG`**（默认 `br2_opentina.defconfig`，与 `config` 同目录）。
-- **defconfig 模板**：`configs/*/br2_opentina.defconfig` — AArch64 + Bootlin 外部工具链 + **无内核**（内核由本仓库 `linux` 组件构建）+ **ext2 rootfs**。
+- **defconfig 模板**：`configs/*/br2_opentina.defconfig` — AArch64 + Bootlin 外部工具链 + **无内核**（内核由本仓库 `linux` 组件构建）+ **ext2 rootfs** + **OP-TEE 用户态 4.6.0**（与 `optee` 组件的 OP-TEE OS 同发行版：`BR2_PACKAGE_OPTEE_CLIENT` / `OPTEE_TEST` / `OPTEE_EXAMPLES`；`libteec`、`tee-supplicant`，SysV `S30tee-supplicant`；`xtest` / `optee_example_*` 用 OpenTina 的 TA SDK 编，不要开 `BR2_TARGET_OPTEE_OS`）。BL32 仍由 **`optee`** 组件构建。
+- **TA**：`br2-post-build.sh`（以及 ubuntu/debian/yocto/openwrt 的镜像 overlay）把 `output/<BOARD>/optee` 里的 `*.ta` 装到 **`/lib/optee_armtz`**；xtest / optee-examples 的 TA 由对应 BR 包装进同一目录（需先编 **`optee`**）。安全存储目录 **`/data/tee`**。改过 TA 后要重编对应 rootfs 并重烧 root 分区，只烧 `u-boot.fex` 不会更新它们。
+- **板上验证**：`xtest`（回归；首次建议 `xtest -l` 看用例），以及 `optee_example_hello_world` 等。
 - **仅构建 rootfs**：`./build.sh <BOARD> build br2`（需已 `init` 克隆 `sources/buildroot`）。
 - **分区**：`configs/*/partitions.cfg` 中 **`partition root`** 使用镜像 **`rootfs.ext2`**，起始偏移 **`148M`**（紧接 128 MiB 的 `boot` 分区之后）。若板卡上块设备节点与 `mmcblk0p4` 不一致，请同步修改板级 **`EXTLINUX_ROOT`**（见下节）。
 
@@ -141,7 +145,7 @@ cd /path/to/build    # 本 README 所在目录
 - **示例**：`./build.sh <BOARD> yocto build yocto`（仅 rootfs，耗时长）；完整镜像：`./build.sh <BOARD> yocto build`
 - **内核**：与 Ubuntu/Debian 相同，**`yocto`** 构建 **`linux`** 时合并 **`linux-systemd.fragment`**（`CONFIG_NET`、`CONFIG_UNIX`、`CONFIG_TMPFS` 等）。未合并时 sysvinit/udev/dbus 会报 **`Function not implemented`**、`/var/volatile` 失败。
 - **默认登录**：**`root` / `root`**，**`opentina` / `opentina`**（`conf/include/opentina-default-users.inc`，镜像构建后处理写入 shadow）。可在 `local.conf` 覆盖 **`OPENTINA_ROOT_PASSWORD`** 等。SSH 已启用 **`allow-root-login`**。
-- **注意**：**不要用 root 跑 bitbake**；**`OPENTINA_DOCKER=1`** 的 OpenTina 镜像未预装完整 Yocto 宿主机依赖，建议在**宿主机**编 **`yocto`** 组件。Layer 阶段为 **rootfs-only**（**`linux-dummy`**），与 **`linux` / `uboot` / `atf`** 组件并行不冲突。
+- **注意**：**不要用 root 跑 bitbake**；**`OPENTINA_DOCKER=1`** 的 OpenTina 镜像未预装完整 Yocto 宿主机依赖，建议在**宿主机**编 **`yocto`** 组件。Layer 阶段为 **rootfs-only**（**`linux-dummy`**），与 **`linux` / `uboot` / `atf` / `optee`** 组件并行不冲突。
 - **若报 `meta-openembedded/meta-oe` 不存在**：说明只拉了 poky、未拉 meta-oe。在 **`sources/meta-opentina`** 执行 **`./yocto-init.sh`** 后重试；或 **`./build.sh … yocto build yocto`**（会自动补跑 init）。
 
 ---
@@ -150,7 +154,7 @@ cd /path/to/build    # 本 README 所在目录
 
 - **源码**：manifest 中的 **`openwrt/openwrt`** → `sources/openwrt`（pin 在 **`openwrt-25.12`** 稳定分支，`clone-depth=1`）。也可设环境变量 **`OPENTINA_OPENWRT_DIR`** 指向本地已有的 OpenWrt 树（如已预热 `build_dir/` 的 fork），跳过 manifest 克隆。
 - **配方**：`scripts/recipes.sh` 中的 **`build_openwrt`** / **`clean_openwrt`**；**`OPENTINA_ROOTFS=openwrt`** 时默认组件链使用 **`openwrt`** 替代 **`br2`**。
-- **定位**：OpenWrt 只作为 **rootfs 供应商**——boot 链（ATF / U-Boot / 内核 / dtb）全部复用本仓库组件；OpenWrt 自产的内核、kmod 与 per-device 镜像全部丢弃，只消费 target 级 **`openwrt-*-rootfs.tar.gz`**。
+- **定位**：OpenWrt 只作为 **rootfs 供应商**——boot 链（OP-TEE / ATF / U-Boot / 内核 / dtb）全部复用本仓库组件；OpenWrt 自产的内核、kmod 与 per-device 镜像全部丢弃，只消费 target 级 **`openwrt-*-rootfs.tar.gz`**。
 - **OpenWrt 补丁**：先应用 `configs/common/openwrt-patches/*.patch`，再应用 `configs/<board>/openwrt-patches/*.patch`；每组内按字典序 `git apply` 到 OpenWrt 树（应用前先把补丁涉及文件 reset 回 HEAD，保证可重复执行）。
 - **配置**（板级 `config`）：
   - **`OPENWRT_CONFIG`**：板级目录下的 `.config` 种子（如 `openwrt.config`），拷贝后经 `make defconfig` 归一化
@@ -206,10 +210,11 @@ cd /path/to/build    # 本 README 所在目录
 
 | 组件 | 含义 |
 |------|------|
-| `atf` | Trusted Firmware-A（BL31 等） |
-| `uboot` | U-Boot（依赖已成功构建的 `atf`） |
-| `linux` | Linux 内核与 dtb |
-| `br2` | **Buildroot**：在 `sources/buildroot` 中按板级 `BUILDROOT_DEFCONFIG` 生成 `rootfs.ext2`，拷贝到 `output/<BOARD>/rootfs.ext2`（供 `genimage` 使用） |
+| `optee` | OP-TEE OS（BL32，`tee.bin` 加载到 DRAM `0x40000000`） |
+| `atf` | Trusted Firmware-A（BL31，`SPD=opteed`） |
+| `uboot` | U-Boot（依赖已成功构建的 `optee` 与 `atf`；SPL FIT 含 BL31+BL32+U-Boot） |
+| `linux` | Linux 内核与 dtb（合并 `linux-optee.fragment`，DTB 预留 TZDRAM/SHM） |
+| `br2` | **Buildroot**：在 `sources/buildroot` 中按板级 `BUILDROOT_DEFCONFIG` 生成 `rootfs.ext2`（含 `tee-supplicant` / `libteec` / `xtest` / `optee_example_*`），拷贝到 `output/<BOARD>/rootfs.ext2` |
 | `ubuntu` | **Ubuntu rootfs**：在 `sources/ubuntu` 中生成 `ubuntu-rootfs.ext4` 并拷贝为 `rootfs.ext2`（`OPENTINA_ROOTFS=ubuntu` 时替代 `br2`） |
 | `debian` | **Debian rootfs**：在 `sources/debian/out/` 中取最新 `.ext4` 并拷贝为 `rootfs.ext2`（`OPENTINA_ROOTFS=debian` 时替代 `br2`） |
 | `yocto` | **Yocto rootfs**：bitbake **`opentina-image-minimal`** / **`-qt`**，ext4 拷贝为 `rootfs.ext2`（`OPENTINA_ROOTFS=yocto` 时替代 `br2`） |

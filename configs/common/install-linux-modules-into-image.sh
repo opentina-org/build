@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Overlay staged Linux modules (*.ko) and PowerVR firmware onto an existing
-# ext2/ext4 rootfs image.
+# Overlay staged Linux modules (*.ko), PowerVR firmware, and OP-TEE TAs onto
+# an existing ext2/ext4 rootfs image.
 # Usage: install-linux-modules-into-image.sh <IMAGE>
 #
 # Used for ubuntu / debian / yocto (they emit a packed ext4). OpenWrt injects
-# both into the unpacked stage instead (see scripts/recipes.sh).
+# modules/firmware into the unpacked stage, then this script adds TAs (see
+# scripts/recipes.sh). Buildroot TAs are installed by br2-post-build.sh.
 set -euo pipefail
 
 IMAGE="${1:?usage: $0 <IMAGE>}"
@@ -13,10 +14,20 @@ BUILD_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 STAGING="${OPENTINA_LINUX_MODULES_STAGING:-$BUILD_ROOT/.staging-linux-modules}"
 INSTALL_TREE="$SCRIPT_DIR/install-linux-modules.sh"
 INSTALL_FW="$SCRIPT_DIR/install-powervr-firmware.sh"
+INSTALL_TA="$SCRIPT_DIR/install-optee-ta.sh"
 FW_CACHE="${OPENTINA_FIRMWARE_CACHE:-$BUILD_ROOT/dl/firmware/powervr}"
 OUT_DIR="$(cd "$(dirname -- "$IMAGE")" && pwd)"
 MNT="$OUT_DIR/.modules-overlay-mnt"
 STAGE="$OUT_DIR/.rootfs-modules-stage"
+
+OPTEE_EXPORT="${OPENTINA_OPTEE_EXPORT:-}"
+if [ -z "$OPTEE_EXPORT" ] || [ ! -d "$OPTEE_EXPORT" ]; then
+	if [ -n "${outDir:-}" ] && [ -d "${outDir%/}/optee" ]; then
+		OPTEE_EXPORT="${outDir%/}/optee"
+	elif [ -d "$OUT_DIR/optee" ]; then
+		OPTEE_EXPORT="$OUT_DIR/optee"
+	fi
+fi
 
 if [ ! -f "$IMAGE" ]; then
 	echo "install-linux-modules-into-image: missing $IMAGE" >&2
@@ -30,6 +41,7 @@ overlay_tree() {
 	local dest="$1"
 	"$INSTALL_TREE" "$dest" || return 1
 	"$INSTALL_FW" "$dest" || return 1
+	OPENTINA_OPTEE_EXPORT="$OPTEE_EXPORT" bash "$INSTALL_TA" "$dest" || return 1
 	return 0
 }
 
@@ -58,13 +70,17 @@ overlay_loop_sudo() {
 		sudo umount "$MNT" || true
 		return 1
 	fi
+	if ! sudo env OPENTINA_OPTEE_EXPORT="$OPTEE_EXPORT" bash "$INSTALL_TA" "$MNT"; then
+		sudo umount "$MNT" || true
+		return 1
+	fi
 	sudo umount "$MNT" || return 1
 	rmdir "$MNT" 2>/dev/null || true
 	return 0
 }
 
-# Non-root path: unpack with debugfs, copy modules + firmware, remake the image
-# in one fakeroot session so uid/gid (including device nodes) survive into mkfs.
+# Non-root path: unpack with debugfs, copy modules + firmware + TAs, remake
+# the image in one fakeroot session so uid/gid (including device nodes) survive.
 repack_fakeroot() {
 	command -v debugfs >/dev/null 2>&1 || return 1
 	command -v mkfs.ext4 >/dev/null 2>&1 || return 1
@@ -80,7 +96,8 @@ repack_fakeroot() {
 	rm -rf "$STAGE"
 	mkdir -p "$STAGE" || return 1
 
-	# $1=image $2=stage $3=install-modules $4=staging $5=label $6=uuid $7=install-fw
+	# $1=image $2=stage $3=install-modules $4=staging $5=label $6=uuid
+	# $7=install-fw $8=install-ta $9=optee-export
 	fakeroot -- sh -c '
 		set -e
 		image="$1"
@@ -90,15 +107,19 @@ repack_fakeroot() {
 		label="$5"
 		uuid="$6"
 		install_fw="$7"
+		install_ta="$8"
+		export OPENTINA_OPTEE_EXPORT="$9"
 		debugfs -R "rdump / $stage" "$image" >/dev/null
 		rm -rf "$stage/lost+found"
 		"$install" "$stage"
 		"$install_fw" "$stage"
+		bash "$install_ta" "$stage"
 		set -- -t ext4 -d "$stage" -m 0 -F
 		[ -n "$label" ] && set -- "$@" -L "$label"
 		[ -n "$uuid" ] && set -- "$@" -U "$uuid"
 		mkfs.ext4 "$@" "$image" >/dev/null
-	' -- "$IMAGE" "$STAGE" "$INSTALL_TREE" "$STAGING" "$label" "${uuid:-}" "$INSTALL_FW" || {
+	' -- "$IMAGE" "$STAGE" "$INSTALL_TREE" "$STAGING" "$label" "${uuid:-}" \
+		"$INSTALL_FW" "$INSTALL_TA" "$OPTEE_EXPORT" || {
 		rm -rf "$STAGE"
 		return 1
 	}
@@ -120,21 +141,31 @@ overlay_docker() {
 	local staging_vol=()
 	[ -d "$STAGING" ] && staging_vol=(-v "$STAGING:/staging:ro")
 
+	local optee_vol=()
+	local optee_env=(-e OPENTINA_OPTEE_EXPORT=)
+	if [ -n "$OPTEE_EXPORT" ] && [ -d "$OPTEE_EXPORT" ]; then
+		optee_vol=(-v "$OPTEE_EXPORT:/optee:ro")
+		optee_env=(-e OPENTINA_OPTEE_EXPORT=/optee)
+	fi
+
 	docker run --rm --privileged \
 		-e OPENTINA_LINUX_MODULES_STAGING=/staging \
 		-e OPENTINA_FIRMWARE_CACHE=/fwcache \
+		"${optee_env[@]}" \
 		-v "$IMAGE:/image.ext4" \
 		"${staging_vol[@]}" \
+		"${optee_vol[@]}" \
 		-v "$INSTALL_TREE:/install-linux-modules.sh:ro" \
 		-v "$INSTALL_FW:/install-powervr-firmware.sh:ro" \
+		-v "$INSTALL_TA:/install-optee-ta.sh:ro" \
 		-v "$FW_CACHE:/fwcache:ro" \
 		--user 0:0 "$dimg" \
-		sh -c 'mkdir -p /mnt && mount -o loop /image.ext4 /mnt && /install-linux-modules.sh /mnt && /install-powervr-firmware.sh /mnt && umount /mnt' \
+		sh -c 'mkdir -p /mnt && mount -o loop /image.ext4 /mnt && /install-linux-modules.sh /mnt && /install-powervr-firmware.sh /mnt && bash /install-optee-ta.sh /mnt && umount /mnt' \
 		|| return 1
 	return 0
 }
 
-echo "install-linux-modules-into-image: overlay modules + PowerVR firmware -> $IMAGE"
+echo "install-linux-modules-into-image: overlay modules + PowerVR firmware + OP-TEE TAs -> $IMAGE"
 
 if [ "$(id -u)" -eq 0 ] && overlay_loop; then
 	exit 0
@@ -153,5 +184,5 @@ if overlay_docker; then
 	exit 0
 fi
 
-echo "install-linux-modules-into-image: need root, passwordless sudo, fakeroot+debugfs+mkfs.ext4, or docker to copy *.ko/firmware into $IMAGE" >&2
+echo "install-linux-modules-into-image: need root, passwordless sudo, fakeroot+debugfs+mkfs.ext4, or docker to copy *.ko/firmware/TAs into $IMAGE" >&2
 exit 1
