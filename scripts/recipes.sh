@@ -326,13 +326,14 @@ _openwrt_patch_lines_present() {
 		(cd "$tree" && git apply --reverse --check "$patch") >/dev/null 2>&1
 		return $?
 	fi
-	while IFS=$'\t' read -r file line; do
+	# A non-whitespace separator preserves leading tabs in added Makefile lines.
+	while IFS=$'\034' read -r file line; do
 		[ -f "$tree/$file" ] || return 1
 		grep -qxF -- "$line" "$tree/$file" || return 1
 	done < <(awk '
 		/^diff --git a\// { f=$3; sub(/^a\//, "", f); next }
 		/^\+\+\+/ { next }
-		/^\+/ { print f "\t" substr($0, 2) }
+		/^\+/ { printf "%s\034%s\n", f, substr($0, 2) }
 	' "$patch")
 	return 0
 }
@@ -346,7 +347,7 @@ build_openwrt() {
 	local ow_cfg="$OPENTINA_BUILD_ROOT/configs/$boardConfigDir/$OPENWRT_CONFIG"
 	[ -f "$ow_cfg" ] || error "Missing OpenWrt config: $ow_cfg"
 
-	local subtgt="${OPENWRT_SUBTARGET:-cortexa53}"
+	local subtgt="${OPENWRT_SUBTARGET:-armv8}"
 	local tgt="${OPENWRT_TARGET:-sunxi}"
 
 	if [ ! -d "$owPath/feeds" ] || [ ! -e "$owPath/feeds.conf" ] && [ ! -e "$owPath/feeds.conf.default" ]; then
@@ -361,31 +362,35 @@ build_openwrt() {
 	# scripts/config/ is rewritten by every OpenWrt 'make'; reset it so the
 	# patch series below applies cleanly on each iteration.
 	(cd "$owPath" && git checkout -- scripts/config/) >/dev/null 2>&1 || true
-	local patch_dir="$OPENTINA_BUILD_ROOT/configs/$boardConfigDir/openwrt-patches"
-	if [ -d "$patch_dir" ]; then
-		shopt -s nullglob
-		local patches=("$patch_dir"/*.patch)
-		if [ ${#patches[@]} -gt 0 ]; then
-			local files
-			files=$(awk '/^diff --git a\// { p=$3; sub(/^a\//, "", p); print p }' "${patches[@]}" | sort -u)
-			if [ -n "$files" ]; then
-				(cd "$owPath" && printf '%s\n' "$files" | xargs git checkout --) >/dev/null 2>&1 || true
-			fi
-			local p
-			for p in "${patches[@]}"; do
-				# Skip when every added line already exists in the tree (e.g. the
-				# patch is committed in a fork). A position-sensitive reverse-apply
-				# check breaks once later commits append below the patched block.
-				if _openwrt_patch_lines_present "$owPath" "$p"; then
-					echo "OpenWrt patch: $(basename "$p") already in tree, skipping"
-					continue
-				fi
-				echo "OpenWrt patch: applying $(basename "$p")"
-				(cd "$owPath" && git apply "$p") || error "OpenWrt: failed to apply $(basename "$p")"
-			done
+	local common_patch_dir="$OPENTINA_BUILD_ROOT/configs/common/openwrt-patches"
+	local board_patch_dir="$OPENTINA_BUILD_ROOT/configs/$boardConfigDir/openwrt-patches"
+	local patch_dir
+	local patches=()
+	shopt -s nullglob
+	for patch_dir in "$common_patch_dir" "$board_patch_dir"; do
+		[ -d "$patch_dir" ] || continue
+		patches+=("$patch_dir"/*.patch)
+	done
+	if [ ${#patches[@]} -gt 0 ]; then
+		local files
+		files=$(awk '/^diff --git a\// { p=$3; sub(/^a\//, "", p); print p }' "${patches[@]}" | sort -u)
+		if [ -n "$files" ]; then
+			(cd "$owPath" && printf '%s\n' "$files" | xargs git checkout --) >/dev/null 2>&1 || true
 		fi
-		shopt -u nullglob
+		local p
+		for p in "${patches[@]}"; do
+			# Skip when every added line already exists in the tree (e.g. the
+			# patch is committed in a fork). A position-sensitive reverse-apply
+			# check breaks once later commits append below the patched block.
+			if _openwrt_patch_lines_present "$owPath" "$p"; then
+				echo "OpenWrt patch: $(basename "$p") already in tree, skipping"
+				continue
+			fi
+			echo "OpenWrt patch: applying $(basename "$p")"
+			(cd "$owPath" && git apply "$p") || error "OpenWrt: failed to apply $(basename "$p")"
+		done
 	fi
+	shopt -u nullglob
 
 	cp -f "$ow_cfg" "$owPath/.config"
 	(cd "$owPath" && make defconfig) >/dev/null || error "OpenWrt 'make defconfig' failed"
