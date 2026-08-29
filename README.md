@@ -83,7 +83,7 @@ cd /path/to/build    # 本 README 所在目录
 - **配方**：`scripts/recipes.sh` 中的 **`build_ubuntu`** / **`clean_ubuntu`**；命令行使用 **`OPENTINA_ROOTFS=ubuntu`** 时，默认组件链里的 rootfs 步骤为 **`ubuntu`** 而非 **`br2`**。
 - **构建**：在 x86 宿主机上优先调用 `sources/ubuntu/docker/build-rootfs.sh`（需本机 **Docker**）；原生 **arm64** 可设 **`OPENTINA_UBUNTU_USE_DOCKER=0`** 后直接跑 `mk-base-ubuntu.sh` / `mk-ubuntu-rootfs.sh`。
 - **环境变量**（可选，可在板级 `config` 中 export）：**`UBUNTU_RELEASE`**（默认 `24.04`）、**`UBUNTU_ARCH`**（默认 `arm64`）、**`OPENTINA_MOTD_BANNER_FILE`**（自定义登录 ASCII/文本，见 `sources/ubuntu/readme.md`）。
-- **产物**：仓库内 `ubuntu-rootfs.ext4` 拷贝为 **`output/<BOARD>/rootfs.ext2`**，与 Buildroot 共用 **`partitions.cfg`** 的 root 分区。
+- **产物**：仓库内 `ubuntu-rootfs.ext4` 拷贝为 **`output/<BOARD>/rootfs.ext2`**，与 Buildroot 共用 **`partitions.cfg`** 的 root 分区。若已构建 **`linux`**，会把 `.staging-linux-modules` 中的 `*.ko` 叠进该镜像。
 - **示例**：`./build.sh <BOARD> ubuntu build`；仅 rootfs：`./build.sh <BOARD> ubuntu build ubuntu`。
 - **内核**：`OPENTINA_ROOTFS=ubuntu` 构建 **`linux`** 时会在 `LINUX_CONFIG`（如 `a733_minimal_defconfig`）之上合并 **`configs/common/linux-systemd.fragment`**（`CONFIG_TMPFS`、`CONFIG_UNIX` 等）。精简 defconfig 单独用于 systemd 会出现 `tmpfs: Unknown parameter 'mode'`、`Failed to find module 'unix'` 并卡在 *Failed to mount API filesystems*。可用环境变量 **`LINUX_SYSTEMD_FRAGMENT`** 覆盖片段路径。
 
@@ -95,7 +95,7 @@ cd /path/to/build    # 本 README 所在目录
 - **配方**：`scripts/recipes.sh` 中的 **`build_debian`** / **`clean_debian`**；**`OPENTINA_ROOTFS=debian`** 时默认组件链使用 **`debian`** 替代 **`br2`**。
 - **构建**：x86 宿主机优先 **`sources/debian/docker/build-rootfs.sh`**（默认 **`MAKE_EXT4=1`**）；原生 arm64 可 **`OPENTINA_DEBIAN_USE_DOCKER=0`** 后执行 **`mk-lite-rootfs.sh`**。
 - **环境变量**（可选）：**`DEBIAN_RELEASE`**（默认 **`trixie`**，亦可用 **`bookworm`**）、**`DEBIAN_ARCH`**（默认 **`arm64`**）、**`ROOTFS_EXT4_MB`**、**`DEBIAN_MIRROR`** 等（见 `sources/debian/readme.md`）。
-- **产物**：`sources/debian/out/debian-*-lite-*.ext4`（取最新）拷贝为 **`output/<BOARD>/rootfs.ext2`**。
+- **产物**：`sources/debian/out/debian-*-lite-*.ext4`（取最新）拷贝为 **`output/<BOARD>/rootfs.ext2`**。若已构建 **`linux`**，同样叠入 staged `*.ko`。
 - **示例**：`./build.sh <BOARD> debian build`；仅 rootfs：`./build.sh <BOARD> debian build debian`。
 - **内核**：与 Ubuntu 相同，**`debian`** 构建 **`linux`** 时合并 **`linux-systemd.fragment`**。
 - **启动参数**：**`build_bootfs`** 会在 extlinux 的 **`append`** 中追加 **`systemd.gpt_auto=0`**，避免 systemd 自动挂载不存在的 `/boot`（GPT 上 FAT 启动区由 U-Boot 使用，不在 rootfs 内挂载）。
@@ -137,7 +137,7 @@ cd /path/to/build    # 本 README 所在目录
   - **`OPENTINA_YOCTO_PROFILE`**：`minimal`（默认，**`opentina-image-minimal`**）或 **`qt`**（需 **`yocto-init.sh --qt`**，**`opentina-image-qt`**）
   - **`YOCTO_MACHINE`** / **`OPENTINA_YOCTO_MACHINE`**：默认 **`a733-aiot`**（layer 当前机器名；与 OpenTina 板级 **`BOARD_NAME`** 独立，内核仍由本仓库 **`linux`** 组件构建）
   - **`OPENTINA_YOCTO_DIR`**：Yocto 工作区，默认 **`sources/yocto`**
-- **产物**：**`sources/yocto/build-opentina/tmp/deploy/images/<MACHINE>/opentina-image-*-<MACHINE>.ext4`** → **`output/<BOARD>/rootfs.ext2`**
+- **产物**：**`sources/yocto/build-opentina/tmp/deploy/images/<MACHINE>/opentina-image-*-<MACHINE>.ext4`** → **`output/<BOARD>/rootfs.ext2`**。若已构建 **`linux`**，叠入 staged `*.ko`。
 - **示例**：`./build.sh <BOARD> yocto build yocto`（仅 rootfs，耗时长）；完整镜像：`./build.sh <BOARD> yocto build`
 - **内核**：与 Ubuntu/Debian 相同，**`yocto`** 构建 **`linux`** 时合并 **`linux-systemd.fragment`**（`CONFIG_NET`、`CONFIG_UNIX`、`CONFIG_TMPFS` 等）。未合并时 sysvinit/udev/dbus 会报 **`Function not implemented`**、`/var/volatile` 失败。
 - **默认登录**：**`root` / `root`**，**`opentina` / `opentina`**（`conf/include/opentina-default-users.inc`，镜像构建后处理写入 shadow）。可在 `local.conf` 覆盖 **`OPENTINA_ROOT_PASSWORD`** 等。SSH 已启用 **`allow-root-login`**。
@@ -157,7 +157,7 @@ cd /path/to/build    # 本 README 所在目录
   - **`OPENWRT_TARGET`** / **`OPENWRT_SUBTARGET`**：默认 `sunxi` / `armv8`
   - **`OPENWRT_ROOTFS_MB`**：`mkfs.ext4` 镜像大小，默认 `2048`（与 `partitions.cfg` root 分区一致）
   - **`OPENWRT_JOBS`**：覆盖 OpenWrt make 并行数（默认 `JOBS`）
-- **产物**：`bin/targets/<TGT>/<SUBTGT>/openwrt-*-rootfs.tar.gz` 解包后 `mkfs.ext4 -d` 生成 **`output/<BOARD>/rootfs.ext2`**。解包时会**删除 `lib/modules/`**——OpenWrt 的 kmod 按它自己的内核 ABI 编译（如 6.12.x），与 `sources/linux` 内核（6.18+）永远不匹配。
+- **产物**：`bin/targets/<TGT>/<SUBTGT>/openwrt-*-rootfs.tar.gz` 解包后 `mkfs.ext4 -d` 生成 **`output/<BOARD>/rootfs.ext2`**。解包时会**删除 OpenWrt 自带的 `lib/modules/`**（kmod 按它自己的内核 ABI 编译，如 6.12.x，与 `sources/linux` 不匹配），再拷入 linux 组件 staged 的 `*.ko`。
 - **内核**：**`OPENTINA_ROOTFS=openwrt`** 构建 **`linux`** 时合并 **`configs/common/linux-openwrt.fragment`**（tmpfs / unix socket / bridge / nftables 等 builtin，供 procd / netifd / firewall4 使用；kmod 已丢弃，缺特性只能往 fragment 加 builtin）。可用 **`LINUX_OPENWRT_FRAGMENT`** 覆盖路径。
 - **示例**：`./build.sh <BOARD> openwrt build`；仅 rootfs：`./build.sh <BOARD> openwrt build openwrt`。首次构建会 bootstrap OpenWrt 自带工具链，耗时较长。
 - **注意**：OpenWrt rootfs 已在 A7A 真机完成启动验证；`armv8` subtarget 与两个 A733 设备定义位于 `configs/common/openwrt-patches/`，设备仍为 rootfs-only 占位（`IMAGES :=`，不产 per-device 镜像）。
