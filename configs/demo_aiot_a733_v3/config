@@ -1,0 +1,17 @@
+BOARD_NAME="demo_aiot_a733_v3"
+PRETTY_NAME="Allwinner DEMO AIOT v3"
+OPENTINA_CROSS_COMPILE="${OPENTINA_CROSS_COMPILE:-aarch64-linux-gnu-}"
+FDT_NAME="sun60i-a733-demo-aiot.dtb"
+PARTITION_CONFIG="$OPENTINA_BUILD_ROOT/configs/demo_aiot_a733_v3/partitions.cfg"
+UBOOT_CONFIG="allwinner-a733-aiotdemo_defconfig"
+LINUX_CONFIG="a733_minimal_defconfig"
+
+BUILDROOT_DEFCONFIG="${BUILDROOT_DEFCONFIG:-br2_opentina.defconfig}"
+OPENWRT_CONFIG="${OPENWRT_CONFIG:-openwrt.config}"
+OPENWRT_TARGET="${OPENWRT_TARGET:-sunxi}"
+OPENWRT_SUBTARGET="${OPENWRT_SUBTARGET:-armv8}"
+OPENWRT_ROOTFS_MB="${OPENWRT_ROOTFS_MB:-2048}"
+# Yocto (meta-opentina): MACHINE matches sun60i-a733-aiot.dtb / aiotdemo U-Boot.
+OPENTINA_YOCTO_MACHINE="${OPENTINA_YOCTO_MACHINE:-a733-aiot}"
+EXTLINUX_ROOT="${EXTLINUX_ROOT:-root=/dev/mmcblk0p4 earlycon rw rootwait}"
+EXTLINUX_CONSOLE="${EXTLINUX_CONSOLE:-console=ttyS0,115200 loglevel=9}"
