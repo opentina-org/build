@@ -13,3 +13,31 @@ BR2_TARGET_ROOTFS_EXT2_4=y
 BR2_TARGET_ROOTFS_EXT2_SIZE="1024M"
 # Install all Linux *.ko from .staging-linux-modules (path relative to Buildroot top).
 BR2_ROOTFS_POST_BUILD_SCRIPT="../../configs/common/br2-post-build.sh"
+# System: busybox init; root/root login, DHCP on eth0.
+# The shared post-build hook also enables SSH root password login.
+BR2_TARGET_GENERIC_ROOT_PASSWD="root"
+BR2_SYSTEM_DHCP="eth0"
+
+# SSH + fetch
+BR2_PACKAGE_OPENSSH=y
+BR2_PACKAGE_CA_CERTIFICATES=y
+BR2_PACKAGE_LIBCURL=y
+BR2_PACKAGE_LIBCURL_CURL=y
+BR2_PACKAGE_LIBCURL_OPENSSL=y
+BR2_PACKAGE_WGET=y
+BR2_PACKAGE_RSYNC=y
+
+# Network / hardware debug tools
+BR2_PACKAGE_IPROUTE2=y
+BR2_PACKAGE_ETHTOOL=y
+BR2_PACKAGE_I2C_TOOLS=y
+BR2_PACKAGE_USBUTILS=y
+BR2_PACKAGE_PCIUTILS=y
+BR2_PACKAGE_LSOF=y
+BR2_PACKAGE_HTOP=y
+BR2_PACKAGE_FILE=y
+BR2_PACKAGE_E2FSPROGS=y
+BR2_PACKAGE_DOSFSTOOLS=y
+
+# Languages
+BR2_PACKAGE_PYTHON3=y
