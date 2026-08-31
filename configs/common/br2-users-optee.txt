@@ -1,0 +1,3 @@
+# username uid group gid password home shell groups comment
+# udev rules from optee-client assign /dev/tee* to group tee.
+tee -1 tee -1 * /data/tee - - TEE

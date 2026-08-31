@@ -16,6 +16,7 @@
 	<default remote="kubuds" revision="tina-dev"/>
 
 	<project name="trusted-firmware-a" path="trusted-firmware-a"/>
+	<project name="optee_os" path="optee_os"/>
 	<project name="u-boot" path="u-boot"/>
 	<project name="linux" path="linux" clone-depth="1"/>
 	<project name="buildroot" path="buildroot" revision="master"/>
@@ -23,7 +24,7 @@
 	<project name="debian" path="debian" revision="main"/>
 	<project name="meta-opentina" path="meta-opentina" revision="main"/>
 	<project name="awbin" path="awbin"/>
-	<!-- OpenWrt: vendored as a 4th rootfs supplier. Reuses build/sources/{atf,uboot,linux};
+	<!-- OpenWrt: vendored as a 4th rootfs supplier. Reuses build/sources/{optee,atf,uboot,linux};
 	     only its rootfs (bin/targets/<target>/*-rootfs.tar.gz) is consumed by build_openwrt.
 	     Pinned to the openwrt-25.12 stable branch (not the rolling 'main' snapshot) so the
 	     local fork and any future ./build.sh init stay on the same tree. clone-depth=1 keeps

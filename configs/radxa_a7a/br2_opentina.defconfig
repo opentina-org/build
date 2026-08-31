@@ -11,5 +11,17 @@ BR2_LINUX_KERNEL=n
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 BR2_TARGET_ROOTFS_EXT2_SIZE="1024M"
+# OP-TEE userspace (libteec + tee-supplicant). BL32 is the OpenTina optee component,
+# not BR2_TARGET_OPTEE_OS. RPMB emulation stays on until eMMC RPMB is wired.
+BR2_INSTALL_LIBSTDCPP=y
+BR2_PACKAGE_OPENSSL=y
+BR2_PACKAGE_LIBOPENSSL=y
+BR2_PACKAGE_OPTEE_CLIENT=y
+BR2_PACKAGE_OPTEE_CLIENT_4_6_0=y
+BR2_PACKAGE_OPTEE_TEST=y
+BR2_PACKAGE_OPTEE_TEST_4_6_0=y
+BR2_PACKAGE_OPTEE_EXAMPLES=y
+BR2_PACKAGE_OPTEE_EXAMPLES_4_6_0=y
+BR2_ROOTFS_USERS_TABLES="../../configs/common/br2-users-optee.txt"
 # Install all Linux *.ko from .staging-linux-modules (path relative to Buildroot top).
 BR2_ROOTFS_POST_BUILD_SCRIPT="../../configs/common/br2-post-build.sh"

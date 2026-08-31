@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
 
-availableComponents=(atf uboot linux br2 bootfs image)
+availableComponents=(optee atf uboot linux br2 bootfs image)
 
 OPENTINA_BUILD_ROOT="$(dirname -- "$(realpath -- "$0")")"
 export OPENTINA_BUILD_ROOT
@@ -209,7 +209,7 @@ opentina_rootfs_component() {
 	esac
 }
 
-availableComponents=(atf uboot linux "$(opentina_rootfs_component)" bootfs image)
+availableComponents=(optee atf uboot linux "$(opentina_rootfs_component)" bootfs image)
 
 component="$*"
 [ "$component" ] || component="${availableComponents[*]}"
@@ -218,6 +218,8 @@ component="$*"
 [ "$JOBS" ] || JOBS="$(nproc)"
 outDir="$OPENTINA_BUILD_ROOT/output/$boardName/"
 export outDir
+# TAs for /lib/optee_armtz (Buildroot post-build and ubuntu/debian/yocto overlay).
+export OPENTINA_OPTEE_EXPORT="$outDir/optee"
 
 # Setting up default make parameters
 export MAKEFLAGS="$MAKEFLAGS -j$JOBS"
