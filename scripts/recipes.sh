@@ -214,6 +214,13 @@ build_ubuntu() {
 
 	local release="${UBUNTU_RELEASE:-24.04}"
 	local arch="${UBUNTU_ARCH:-arm64}"
+	local profile="${OPENTINA_UBUNTU_PROFILE:-lite}"
+	local desktop
+	case "$profile" in
+	lite) desktop=0 ;;
+	desktop) desktop=1 ;;
+	*) error "OPENTINA_UBUNTU_PROFILE must be lite or desktop (got: $profile)" ;;
+	esac
 
 	_resolve_oem_dir
 	_linux_modules_warn_if_missing "Ubuntu rootfs"
@@ -225,13 +232,15 @@ build_ubuntu() {
 		docker buildx version >/dev/null 2>&1 &&
 		[ "${OPENTINA_UBUNTU_USE_BUILDX:-1}" != "0" ] &&
 		[ -z "${OPENTINA_IN_DOCKER:-}" ]; then
-		MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Ubuntu rootfs (buildx) failed"
+		DESKTOP="$desktop" MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Ubuntu $profile rootfs (buildx) failed"
 	elif command -v docker >/dev/null 2>&1 &&
 		[ "${OPENTINA_UBUNTU_USE_DOCKER:-1}" != "0" ] &&
 		[ -z "${OPENTINA_IN_DOCKER:-}" ]; then
+		[ "$profile" = lite ] || error "Ubuntu desktop profile requires the buildx path."
 		_require_buildx_for_oem
 		ARCH="$arch" ./docker/build-rootfs.sh "$release" || error "Ubuntu rootfs (docker) failed"
 	elif [ "$(dpkg --print-architecture 2>/dev/null)" = "arm64" ] && [ "$arch" = "arm64" ]; then
+		[ "$profile" = lite ] || error "Ubuntu desktop profile requires the buildx path."
 		_require_buildx_for_oem
 		UBUNTU_RELEASE="$release" ./mk-base-ubuntu.sh "$arch" || error "mk-base-ubuntu.sh failed"
 		./mk-ubuntu-rootfs.sh "$arch" || error "mk-ubuntu-rootfs.sh failed"
@@ -239,14 +248,17 @@ build_ubuntu() {
 		error "Ubuntu rootfs on $(uname -m) needs Docker on the host (sources/ubuntu/docker/build-rootfs-buildx.sh or build-rootfs.sh). On native arm64 without Docker, install binfmt-support qemu-user-static and set OPENTINA_UBUNTU_USE_DOCKER=0."
 	fi
 
-	# buildx wrapper writes ubuntu-<release>-lite-<arch>-<date>.ext4 to out/.
+	# Select only the requested buildx profile; taking the newest arbitrary ext4
+	# can silently package a desktop rootfs as lite (or vice versa).
 	# Legacy path writes ubuntu-rootfs.ext4 in the repo root. Accept either.
 	local img
-	img=$(ls -t "$ubuntuPath"/out/*.ext4 2>/dev/null | head -1)
-	[ -f "$img" ] || img="$ubuntuPath/ubuntu-rootfs.ext4"
-	[ -f "$img" ] || error "Expected $ubuntuPath/out/*.ext4 (buildx) or $ubuntuPath/ubuntu-rootfs.ext4 (legacy) after Ubuntu rootfs build."
+	img=$(ls -t "$ubuntuPath"/out/ubuntu-"$release"-"$profile"-"$arch"-*.ext4 2>/dev/null | head -1)
+	[ -f "$img" ] || [ "$profile" != lite ] || img="$ubuntuPath/ubuntu-rootfs.ext4"
+	[ -f "$img" ] || error "Expected an Ubuntu $profile ext4 image after rootfs build."
 	cp -f "$img" "$outDir/rootfs.ext2"
 	_install_linux_modules_into_out_rootfs
+	printf '%s\n' "$profile" > "$outDir/.ubuntu-profile"
+	echo "Copied Ubuntu $profile rootfs: $img -> $outDir/rootfs.ext2"
 }
 
 clean_ubuntu() {
@@ -256,6 +268,7 @@ clean_ubuntu() {
 		./build.sh clean
 	fi
 	rm -f "$outDir/rootfs.ext2"
+	rm -f "$outDir/.ubuntu-profile"
 }
 
 # Debian rootfs (debian component — OPENTINA_ROOTFS=debian CLI token).
@@ -265,6 +278,13 @@ build_debian() {
 
 	local release="${DEBIAN_RELEASE:-trixie}"
 	local arch="${DEBIAN_ARCH:-arm64}"
+	local profile="${OPENTINA_DEBIAN_PROFILE:-lite}"
+	local desktop base_flavor
+	case "$profile" in
+	lite) desktop=0; base_flavor=-slim ;;
+	desktop) desktop=1; base_flavor= ;;
+	*) error "OPENTINA_DEBIAN_PROFILE must be lite or desktop (got: $profile)" ;;
+	esac
 
 	_resolve_oem_dir
 	_linux_modules_warn_if_missing "Debian rootfs"
@@ -278,13 +298,15 @@ build_debian() {
 		docker buildx version >/dev/null 2>&1 &&
 		[ "${OPENTINA_DEBIAN_USE_BUILDX:-1}" != "0" ] &&
 		[ -z "${OPENTINA_IN_DOCKER:-}" ]; then
-		MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Debian rootfs (buildx) failed"
+		DESKTOP="$desktop" BASE_FLAVOR="$base_flavor" HOSTNAME="debian-$profile" SERIAL_FIX="${OPENTINA_DEBIAN_SERIAL_FIX:-0}" MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Debian $profile rootfs (buildx) failed"
 	elif command -v docker >/dev/null 2>&1 &&
 		[ "${OPENTINA_DEBIAN_USE_DOCKER:-1}" != "0" ] &&
 		[ -z "${OPENTINA_IN_DOCKER:-}" ]; then
+		[ "$profile" = lite ] || error "Debian desktop profile requires the buildx path."
 		_require_buildx_for_oem
 		MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs.sh "$release" || error "Debian rootfs (docker) failed"
 	elif [ "$(dpkg --print-architecture 2>/dev/null)" = "arm64" ] && [ "$arch" = "arm64" ]; then
+		[ "$profile" = lite ] || error "Debian desktop profile requires the buildx path."
 		_require_buildx_for_oem
 		MAKE_EXT4=1 ARCH="$arch" ./mk-lite-rootfs.sh "$release" || error "mk-lite-rootfs.sh failed"
 	else
@@ -292,10 +314,13 @@ build_debian() {
 	fi
 
 	local img
-	img=$(ls -t "$debianPath"/out/*.ext4 2>/dev/null | head -1)
-	[ -f "$img" ] || error "Expected $debianPath/out/*.ext4 after Debian build (MAKE_EXT4=1)."
+	img=$(ls -t "$debianPath"/out/debian-"$release"-"$profile"-"$arch"-*.ext4 2>/dev/null | head -1)
+	[ -f "$img" ] || [ "$profile" != lite ] || img=$(ls -t "$debianPath"/out/*.ext4 2>/dev/null | head -1)
+	[ -f "$img" ] || error "Expected a Debian $profile ext4 image after rootfs build."
 	cp -f "$img" "$outDir/rootfs.ext2"
 	_install_linux_modules_into_out_rootfs
+	printf '%s\n' "$profile" > "$outDir/.debian-profile"
+	echo "Copied Debian $profile rootfs: $img -> $outDir/rootfs.ext2"
 }
 
 clean_debian() {
