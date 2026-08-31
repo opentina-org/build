@@ -13,6 +13,15 @@ CONFIG_UNIX=y
 CONFIG_PACKET=y
 CONFIG_IPV6=y
 
+# USB ethernet dongles provide a controlled network test path without enabling
+# the unfinished on-board GMAC. Keep these built in because OpenWrt modules are
+# built against a different kernel and are removed from the assembled rootfs.
+CONFIG_NETDEVICES=y
+CONFIG_USB_USBNET=y
+CONFIG_USB_NET_AX88179_178A=y
+CONFIG_USB_RTL8152=y
+CONFIG_USB_NET_CDCETHER=y
+
 # netifd LAN bridge / VLAN
 CONFIG_BRIDGE=y
 CONFIG_VLAN_8021Q=y

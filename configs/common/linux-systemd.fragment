@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
 # Kernel options for distro rootfs (systemd / sysvinit + udev + dbus + tmpfs /var/volatile).
-# Merge when OPENTINA_ROOTFS is ubuntu, debian, or yocto (on top of a733_minimal_defconfig).
+# Merge when OPENTINA_ROOTFS is buildroot, ubuntu, debian, or yocto (on top of a733_minimal_defconfig).
 
 CONFIG_TMPFS=y
 CONFIG_TMPFS_POSIX_ACL=y
@@ -13,3 +13,27 @@ CONFIG_IPV6=y
 CONFIG_DEVPTS=y
 CONFIG_KEYS=y
 CONFIG_PSI=y
+
+# A733 GMAC (must live here: the minimal defconfig has no CONFIG_NET)
+CONFIG_NETDEVICES=y
+CONFIG_STMMAC_ETH=y
+CONFIG_DWMAC_SUN55I=y
+
+# USB ethernet dongles (stopgap while GMAC bringup is unfinished)
+CONFIG_USB_USBNET=y
+CONFIG_USB_NET_AX88179_178A=y
+CONFIG_USB_RTL8152=y
+CONFIG_USB_NET_CDCETHER=y
+
+# USB keyboard/mouse input. Keep this built in: distro rootfs images currently
+# do not install a matching /lib/modules tree for the external BSP kernel.
+CONFIG_INPUT=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_HID_SUPPORT=y
+CONFIG_HID=y
+CONFIG_HID_GENERIC=y
+CONFIG_USB_HID=y
+
+# vkms for headless GUI-stack verification
+CONFIG_DRM=y
+CONFIG_DRM_VKMS=y
