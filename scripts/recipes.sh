@@ -301,26 +301,22 @@ build_br2() {
 
 	cd "$buildrootPath"
 	# Drop a leftover BR2_EXTERNAL from older builds (configs/br2-external).
-	# In-tree optee-test / optee-examples use OPENTINA_OPTEE_EXPORT; do not
-	# enable BR2_TARGET_OPTEE_OS.
+	# optee-test / optee-examples build their TAs against Buildroot's own TA
+	# devkit (BR2_TARGET_OPTEE_OS_SDK, core/services off) — same optee_os
+	# commit as the optee component, so the TA signing key matches.
 	make BR2_EXTERNAL= defconfig BR2_DEFCONFIG="$br2_cfg" \
 		|| error "Buildroot defconfig failed"
 
 	_linux_modules_warn_if_missing "Buildroot rootfs"
 
 	if opentina_optee_enabled; then
-		# TAs + TA SDK from the OpenTina optee component (not BR2_TARGET_OPTEE_OS).
+		# Extra TAs from the OpenTina optee component, if it has been built;
+		# br2-post-build.sh copies them next to the ones Buildroot produces.
+		# xtest / optee-examples are built by Buildroot itself against its own
+		# TA devkit (BR2_TARGET_OPTEE_OS_SDK), not against this export.
 		export OPENTINA_OPTEE_EXPORT="${outDir%/}/optee"
-		if [ ! -f "$OPENTINA_OPTEE_EXPORT/export-ta_arm64/mk/ta_dev_kit.mk" ] &&
-			[ ! -f "$OPENTINA_OPTEE_EXPORT/export-ta_arm32/mk/ta_dev_kit.mk" ]; then
-			error "xtest/optee-examples need the OP-TEE TA devkit; build optee first (./build.sh $boardName build optee)"
-		fi
-		# TA signing (sign_encrypt.py) needs distro python3-cryptography, not conda.
-		if ! /usr/bin/python3 -c "import cryptography" >/dev/null 2>&1; then
-			error "Missing python3 cryptography module. Install: sudo apt install python3-cryptography"
-		fi
 		if ! compgen -G "$OPENTINA_OPTEE_EXPORT/export-ta_*/ta/*.ta" >/dev/null 2>&1; then
-			yellow_msg "No exported OP-TEE TAs under $OPENTINA_OPTEE_EXPORT"
+			yellow_msg "No extra OP-TEE TAs under $OPENTINA_OPTEE_EXPORT"
 		fi
 		# After --no-optee the files are gone but stamps remain; force install.
 		if [ ! -f "$t/etc/init.d/S30tee-supplicant" ] ||
@@ -330,12 +326,15 @@ build_br2() {
 		fi
 	else
 		# Board defconfig enables OP-TEE userspace; drop it when OP-TEE is off.
+		# BR2_TARGET_OPTEE_OS goes too, otherwise Buildroot still fetches and
+		# builds the TA devkit for packages that are no longer selected.
 		local br_cfgtool="$buildrootPath/utils/config"
 		[ -x "$br_cfgtool" ] || error "Missing Buildroot utils/config: $br_cfgtool"
 		"$br_cfgtool" --file "$buildrootPath/.config" \
 			--disable BR2_PACKAGE_OPTEE_CLIENT \
 			--disable BR2_PACKAGE_OPTEE_TEST \
 			--disable BR2_PACKAGE_OPTEE_EXAMPLES \
+			--disable BR2_TARGET_OPTEE_OS \
 			--set-str BR2_ROOTFS_USERS_TABLES "" \
 			|| error "Failed to disable Buildroot OP-TEE packages"
 		make BR2_EXTERNAL= olddefconfig || error "Buildroot olddefconfig failed"
