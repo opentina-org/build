@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+#
+# HMI additions merged onto the board's br2_opentina.defconfig when
+# OPENTINA_BR2_PROFILE=hmi. Kept as a fragment so the two profiles cannot
+# drift apart.
+#
+# A733 GPU is an Imagination BXM-4-64 driven by the mainline powervr DRM
+# driver. Buildroot carries Mesa 26.0.x, which still matches devices against a
+# hardcoded table, so the A733 entry is patched in via BR2_GLOBAL_PATCH_DIR.
+# Upstream Mesa 26.1 matches on the DRM driver name instead; drop the patch
+# once Buildroot moves past 26.0.x.
+BR2_GLOBAL_PATCH_DIR="../../configs/common/br2-global-patches"
+
+# Mesa's precompiled shader tooling needs a host Rust toolchain. C++ comes from
+# the external Bootlin toolchain via BR2_INSTALL_LIBSTDCPP in the base defconfig.
+BR2_PACKAGE_HOST_RUSTC=y
+
+# Mesa: imagination Vulkan driver plus zink so GL runs on top of it.
+# llvmpipe stays in for the software-rendering comparison.
+BR2_PACKAGE_MESA3D=y
+BR2_PACKAGE_MESA3D_LLVM=y
+BR2_PACKAGE_MESA3D_VULKAN_DRIVER_IMAGINATION=y
+BR2_PACKAGE_MESA3D_VULKAN_DRIVER_SWRAST=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_ZINK=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SWRAST=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+BR2_PACKAGE_MESA3D_GBM=y
+
+# Vulkan loader and the tools used for board bring-up.
+BR2_PACKAGE_VULKAN_LOADER=y
+BR2_PACKAGE_VULKAN_TOOLS=y
+
+# Wayland compositor.
+BR2_PACKAGE_WAYLAND=y
+BR2_PACKAGE_WAYLAND_PROTOCOLS=y
+BR2_PACKAGE_WESTON=y
+BR2_PACKAGE_WESTON_DRM=y
+BR2_PACKAGE_WESTON_DEMO_CLIENTS=y
+BR2_PACKAGE_LIBINPUT=y
+# seatd is pulled in by weston's own select; no need to list it here.
+
+# Multimedia. VP8/Vorbis only: there is no x264 in this set.
+BR2_PACKAGE_GSTREAMER1=y
+BR2_PACKAGE_GST1_PLUGINS_BASE=y
+BR2_PACKAGE_GST1_PLUGINS_GOOD=y
+BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_VIDEOTESTSRC=y
+BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_AUDIOTESTSRC=y
+BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_VIDEOCONVERTSCALE=y
+BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_AUDIOCONVERT=y
+BR2_PACKAGE_GST1_PLUGINS_GOOD_PLUGIN_VPX=y
+BR2_PACKAGE_GST1_PLUGINS_GOOD_PLUGIN_MATROSKA=y
+BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_ALSA=y
+BR2_PACKAGE_ALSA_UTILS=y
+BR2_PACKAGE_ALSA_LIB=y
+
+# The HMI rootfs does not fit in the 1024M used by the console profile.
+BR2_TARGET_ROOTFS_EXT2_SIZE="2048M"
