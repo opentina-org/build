@@ -1,0 +1,37 @@
+#!/bin/sh
+# OpenTina HMI compositor, busybox/SysV init form.
+# systemd images use opentina-weston.service instead.
+
+DAEMON=/usr/bin/weston
+PIDFILE=/var/run/weston.pid
+export XDG_RUNTIME_DIR=/run/opentina-hmi
+export WAYLAND_DISPLAY=wayland-1
+# The imagination Vulkan driver is not conformant yet and refuses to load
+# without this opt-in. Harmless on images without the PowerVR stack.
+export PVR_I_WANT_A_BROKEN_VULKAN_DRIVER=1
+
+start() {
+	[ -x "$DAEMON" ] || { echo "weston not installed"; exit 0; }
+	# No DRM device means no display pipeline; do not fail the boot over it.
+	ls /dev/dri/card* >/dev/null 2>&1 || { echo "no DRM device; skipping weston"; exit 0; }
+	mkdir -p "$XDG_RUNTIME_DIR"
+	chmod 0700 "$XDG_RUNTIME_DIR"
+	printf 'Starting weston: '
+	start-stop-daemon -S -q -m -b -p "$PIDFILE" -x "$DAEMON" -- \
+		--backend=drm-backend.so --config=/etc/xdg/weston/weston.ini
+	echo "OK"
+}
+
+stop() {
+	printf 'Stopping weston: '
+	start-stop-daemon -K -q -p "$PIDFILE"
+	rm -f "$PIDFILE"
+	echo "OK"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart | reload) stop; sleep 1; start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac

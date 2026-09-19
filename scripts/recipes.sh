@@ -320,6 +320,8 @@ build_br2() {
 			|| error "Failed to merge $hmi_frag"
 		make BR2_EXTERNAL= olddefconfig >/dev/null \
 			|| error "Buildroot olddefconfig failed after the hmi fragment"
+		# Consumed by br2-post-build.sh -> install-opentina-hmi.sh.
+		export OPENTINA_HMI=1
 	fi
 
 	_linux_modules_warn_if_missing "Buildroot rootfs"

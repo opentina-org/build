@@ -17,3 +17,5 @@ if [ -f "$TARGET_DIR/etc/ssh/sshd_config" ]; then
 	sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' \
 		"$TARGET_DIR/etc/ssh/sshd_config"
 fi
+# No-op unless OPENTINA_HMI=1 (set by the br2 hmi profile).
+bash "$SCRIPT_DIR/install-opentina-hmi.sh" "$TARGET_DIR"
