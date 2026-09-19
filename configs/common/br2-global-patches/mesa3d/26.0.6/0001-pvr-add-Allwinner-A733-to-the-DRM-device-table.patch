@@ -1,0 +1,22 @@
+From: Cheng Li <shiptux@gmail.com>
+Subject: [PATCH] pvr: add Allwinner A733 to the DRM device table
+
+The A733 carries a BXM-4-64 (BVNC 36.56.104.183) driven by the mainline
+powervr DRM driver with compatible "allwinner,a733-gpu". Add it next to
+the existing TI/MediaTek entries so the physical device is enumerated.
+
+Upstream-Status: Pending
+---
+ src/imagination/vulkan/pvr_instance.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/src/imagination/vulkan/pvr_instance.c
++++ b/src/imagination/vulkan/pvr_instance.c
+@@ -50,6 +50,7 @@
+ 
+ /* This is the list of supported DRM render driver configs. */
+ static const struct pvr_drm_device_config pvr_drm_configs[] = {
++   DEF_CONFIG("allwinner,a733-gpu"),
+    DEF_CONFIG("mediatek,mt8173-gpu"),
+    DEF_CONFIG("ti,am62-gpu"),
+    DEF_CONFIG("ti,j721s2-gpu"),

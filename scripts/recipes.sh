@@ -298,6 +298,11 @@ build_br2() {
 	[ -f "$br2_cfg" ] || error "Missing Buildroot defconfig: $br2_cfg"
 	local br2_optee_stamp="${outDir%/}/.br2-optee"
 	local t="$buildrootPath/output/target"
+	local profile="${OPENTINA_BR2_PROFILE:-lite}"
+	case "$profile" in
+	lite | hmi) ;;
+	*) error "OPENTINA_BR2_PROFILE must be lite or hmi (got: $profile)" ;;
+	esac
 
 	cd "$buildrootPath"
 	# Drop a leftover BR2_EXTERNAL from older builds (configs/br2-external).
@@ -305,6 +310,17 @@ build_br2() {
 	# enable BR2_TARGET_OPTEE_OS.
 	make BR2_EXTERNAL= defconfig BR2_DEFCONFIG="$br2_cfg" \
 		|| error "Buildroot defconfig failed"
+
+	# hmi merges a fragment onto the board defconfig rather than carrying a
+	# second full defconfig per board, so the two profiles cannot drift apart.
+	if [ "$profile" = hmi ]; then
+		local hmi_frag="$OPENTINA_BUILD_ROOT/configs/common/br2-hmi.fragment"
+		[ -f "$hmi_frag" ] || error "Missing $hmi_frag"
+		./support/kconfig/merge_config.sh -m -O . .config "$hmi_frag" >/dev/null \
+			|| error "Failed to merge $hmi_frag"
+		make BR2_EXTERNAL= olddefconfig >/dev/null \
+			|| error "Buildroot olddefconfig failed after the hmi fragment"
+	fi
 
 	_linux_modules_warn_if_missing "Buildroot rootfs"
 
