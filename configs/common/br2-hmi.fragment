@@ -28,9 +28,13 @@ BR2_PACKAGE_MESA3D_OPENGL_EGL=y
 BR2_PACKAGE_MESA3D_OPENGL_ES=y
 BR2_PACKAGE_MESA3D_GBM=y
 
-# Vulkan loader and the tools used for board bring-up.
+# Vulkan loader and the tools used for board bring-up. glmark2 picks its
+# wayland-glesv2 flavour automatically once EGL, GLES and wayland are in.
+# Note: Buildroot's vulkan-tools sets BUILD_CUBE=OFF, so this image gets
+# vulkaninfo but no vkcube; use glmark2 for the on-screen check.
 BR2_PACKAGE_VULKAN_LOADER=y
 BR2_PACKAGE_VULKAN_TOOLS=y
+BR2_PACKAGE_GLMARK2=y
 
 # Wayland compositor.
 BR2_PACKAGE_WAYLAND=y
