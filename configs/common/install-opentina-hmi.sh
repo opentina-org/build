@@ -20,8 +20,11 @@ install -D -m 0755 "$SRC/gst-scenarios.sh" \
 install -D -m 0644 "$SRC/weston.ini" "$DEST_ROOT/etc/xdg/weston/weston.ini"
 
 # systemd images get opentina-weston.service from their own overlay; only the
-# busybox/SysV images need this init script.
-if [ ! -d "$DEST_ROOT/usr/lib/systemd/system" ] && [ ! -d "$DEST_ROOT/lib/systemd/system" ]; then
+# busybox/SysV images need this init script. Test for /etc/inittab rather than
+# for a systemd unit directory: Buildroot packages install unit files even when
+# the image runs busybox init, so the directory says nothing about the init
+# system actually in use.
+if [ -f "$DEST_ROOT/etc/inittab" ]; then
 	install -D -m 0755 "$SRC/S40weston" "$DEST_ROOT/etc/init.d/S40weston"
 	echo "install-opentina-hmi: installed the SysV weston init script"
 fi
