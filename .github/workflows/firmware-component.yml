@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: MIT
+# Reusable component CI for firmware and rootfs repos. No sdcard.img.
+# Called from each source repo's .github/workflows/opentina-firmware.yml.
+name: OpenTina component
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        required: false
+    inputs:
+      project:
+        description: Manifest project name; default is the caller repository name
+        type: string
+        required: false
+        default: ""
+      build_repo:
+        type: string
+        default: opentina-org/build
+      build_ref:
+        description: Build-repo ref for recipes and fragments
+        type: string
+        default: tina-dev
+
+concurrency:
+  group: component-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ inputs.project || github.event.repository.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      OPENTINA_GH_TOKEN: ${{ secrets.token }}
+    steps:
+      - name: Checkout PR tree
+        uses: actions/checkout@v4
+        with:
+          path: firmware
+
+      - name: Checkout build recipes
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.build_repo }}
+          ref: ${{ inputs.build_ref }}
+          path: build
+          token: ${{ secrets.token || github.token }}
+
+      - name: Map project
+        id: map
+        env:
+          PROJECT_IN: ${{ inputs.project }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          name="${PROJECT_IN:-${REPO##*/}}"
+          ccache=true
+          yocto=false
+          case "$name" in
+          linux) p=linux ;;
+          u-boot | uboot) p=u-boot ;;
+          optee_os | optee) p=optee_os ;;
+          trusted-firmware-a | atf | tf-a) p=trusted-firmware-a ;;
+          awbin) p=awbin ;;
+          buildroot | br2) p=buildroot ;;
+          ubuntu) p=ubuntu; ccache=false ;;
+          debian) p=debian; ccache=false ;;
+          openwrt) p=openwrt ;;
+          meta-opentina | yocto) p=meta-opentina; yocto=true ;;
+          *)
+            echo "unsupported repo: $name" >&2
+            exit 1
+            ;;
+          esac
+          echo "project=$p" >> "$GITHUB_OUTPUT"
+          echo "ccache=$ccache" >> "$GITHUB_OUTPUT"
+          echo "yocto=$yocto" >> "$GITHUB_OUTPUT"
+          echo "building $p from $REPO @ ${GITHUB_SHA}"
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -hT / /mnt || df -hT /
+
+      - name: Reclaim extra disk (Yocto)
+        if: steps.map.outputs.yocto == 'true'
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/swift /usr/local/share/powershell \
+            /usr/local/.ghcup /opt/az /usr/share/miniconda || true
+          if [ -f /mnt/swapfile ]; then
+            sudo swapoff /mnt/swapfile || true
+            sudo rm -f /mnt/swapfile
+          fi
+          if [ ! -e /swapfile ]; then
+            sudo fallocate -l 4G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+          mnt_kb="$(df --output=avail /mnt 2>/dev/null | tail -1 | tr -d ' ' || true)"
+          if [ -n "${mnt_kb:-}" ] && [ "$mnt_kb" -gt $((10 * 1024 * 1024)) ]; then
+            sudo mkdir -p /mnt/yocto
+            sudo chown "$(id -un):$(id -gn)" /mnt/yocto
+            echo "OPENTINA_YOCTO_DIR=/mnt/yocto" >> "$GITHUB_ENV"
+            echo "Using /mnt for Yocto workdir (${mnt_kb} KiB free)"
+          else
+            echo "/mnt is small or missing; Yocto stays on the workspace disk"
+          fi
+          df -hT / /mnt || df -hT /
+
+      - name: Allow unprivileged user namespaces (Yocto)
+        if: steps.map.outputs.yocto == 'true'
+        run: |
+          echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/99-bitbake-userns.conf
+          sudo sysctl -p /etc/sysctl.d/99-bitbake-userns.conf
+
+      - name: Install host packages
+        run: build/scripts/ci-install-deps.sh
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        if: steps.map.outputs.ccache == 'true'
+        with:
+          key: component-${{ steps.map.outputs.project }}-${{ runner.os }}
+          restore-keys: |
+            component-${{ steps.map.outputs.project }}-${{ runner.os }}
+          max-size: 1G
+
+      - name: Build ${{ steps.map.outputs.project }}
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          FIRMWARE_SRC: ${{ github.workspace }}/firmware
+          OPENTINA_BUILD_ROOT: ${{ github.workspace }}/build
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.map.outputs.ccache }}" = true ]; then
+            export PATH="/usr/lib/ccache:${PATH}"
+          fi
+          exec "$OPENTINA_BUILD_ROOT/scripts/ci-firmware-build.sh" "${{ steps.map.outputs.project }}"

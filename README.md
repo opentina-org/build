@@ -365,6 +365,22 @@ CI 在 **Ubuntu 24.04 runner** 上装与 `docker/Dockerfile` 对齐的宿主依�
 
 `./build.sh init` 要拉 `opentina-org` 下的 linux / u-boot 等仓。若这些仓是**私有**的，在仓库 Secrets 里加 **`OPENTINA_GH_TOKEN`**（能读对应 project 的 PAT）；公开仓用默认 `GITHUB_TOKEN` 即可。
 
+固件 / rootfs 仓的 PR **不编完整 sdcard**。各仓 `.github/workflows/opentina-firmware.yml` 复用本仓 [`firmware-component.yml`](.github/workflows/firmware-component.yml)（对齐 build PR 子集，只跑该组件）：
+
+| 仓库 | PR 构建（不对镜像 `dd`） |
+|------|-------------------------|
+| **linux** | 每种 kconfig 先 demo 再 **a7a**（同一 Image、不同 DTB）：buildroot±OP-TEE、ubuntu（systemd）、**openwrt** fragment |
+| **u-boot** | demo+OP-TEE、a7a+OP-TEE、demo+no-OP-TEE（会编 ATF/OP-TEE/awbin） |
+| **awbin** | 检查 boot0 / header，再编 demo+OP-TEE、a7a+OP-TEE、demo+no-OP-TEE 的 **uboot** 打包（会编 ATF/OP-TEE） |
+| **trusted-firmware-a** | demo：`SPD=opteed` / `SPD=none` |
+| **optee_os** | demo：OP-TEE + AArch64 TA |
+| **buildroot** | demo+OP-TEE、a7a+OP-TEE、demo+no-OP-TEE 的 **br2** |
+| **ubuntu** / **debian** | demo 与 a7a、OP-TEE 下的对应 rootfs |
+| **openwrt** | demo 与 a7a、OP-TEE 下的 **openwrt** rootfs |
+| **meta-opentina** | demo 与 a7a、OP-TEE 下的 **yocto** rootfs |
+
+私有仓配 **`OPENTINA_GH_TOKEN`** 以便 checkout build（以及 U-Boot / awbin job 拉 ATF/OP-TEE/u-boot）。
+
 ---
 
 ## 获取帮助
