@@ -10,3 +10,5 @@ SCRIPT_DIR="$(cd "$(dirname -- "$0")" && pwd)"
 if [ "${OPENTINA_OPTEE:-1}" != "0" ]; then
 	bash "$SCRIPT_DIR/install-optee-ta.sh" "$TARGET_DIR"
 fi
+# No-op unless OPENTINA_HMI=1 (set by the br2 hmi profile).
+bash "$SCRIPT_DIR/install-opentina-hmi.sh" "$TARGET_DIR"

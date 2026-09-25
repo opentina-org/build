@@ -1,0 +1,84 @@
+#!/bin/sh
+# OpenTina HMI acceptance check. Run on the board after boot; the output is
+# meant to be pasted into a test record as-is.
+#
+# Usage: opentina-hmi-check [--quick]
+#   --quick  skip the GStreamer scenarios and the glmark2 comparison
+set -u
+
+QUICK=0
+[ "${1:-}" = "--quick" ] && QUICK=1
+
+. /etc/default/opentina-hmi 2>/dev/null || true
+export PVR_I_WANT_A_BROKEN_VULKAN_DRIVER="${PVR_I_WANT_A_BROKEN_VULKAN_DRIVER:-1}"
+: "${XDG_RUNTIME_DIR:=/run/opentina-hmi}"
+export XDG_RUNTIME_DIR
+: "${WAYLAND_DISPLAY:=wayland-1}"
+export WAYLAND_DISPLAY
+
+sec() { printf '\n== %s\n' "$1"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+sec "image"
+( . /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}" ) || true
+uname -srm
+
+sec "kernel drm"
+dmesg 2>/dev/null | grep -iE 'powervr|pvr|drm' | tail -8
+ls -l /dev/dri/ 2>&1
+
+sec "firmware"
+ls -l /lib/firmware/powervr/ 2>&1
+
+sec "mesa"
+if have dpkg; then dpkg -l | awk '/mesa|libgbm|libegl/ {print $2, $3}'; fi
+ls /usr/lib/*/libvulkan_powervr_mesa.so /usr/share/vulkan/icd.d/powervr_mesa_icd.json 2>&1
+
+sec "vulkan"
+if have vulkaninfo; then
+    vulkaninfo --summary 2>&1 | grep -iE 'deviceName|apiVersion|driverName|driverInfo' || \
+        vulkaninfo --summary 2>&1 | tail -20
+else
+    echo "vulkaninfo not installed"
+fi
+
+sec "compositor"
+if have systemctl; then
+    systemctl is-active opentina-weston.service 2>&1
+else
+    # busybox init images (Buildroot) have no systemd; report the process instead.
+    pgrep -a weston 2>/dev/null || echo "weston not running"
+fi
+if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
+    echo "wayland socket: $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY present"
+else
+    echo "wayland socket: MISSING at $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+fi
+have wayland-info && wayland-info 2>&1 | grep -E 'interface:.*(wl_output|zwp_linux_dmabuf|xdg_wm_base)' | head
+
+sec "audio"
+ls /dev/snd/ 2>&1
+have aplay && aplay -l 2>&1 | head -5
+
+[ "$QUICK" = "1" ] && { echo; echo "== done (quick)"; exit 0; }
+
+sec "gstreamer scenarios"
+if [ -x /usr/share/opentina/demo/gst-scenarios.sh ]; then
+    /usr/share/opentina/demo/gst-scenarios.sh all
+else
+    echo "gst-scenarios.sh not installed"
+fi
+
+sec "glmark2 hardware vs llvmpipe"
+if have glmark2-es2-wayland; then
+    echo "-- hardware path"
+    glmark2-es2-wayland -b build:duration=5 2>&1 | grep -iE 'GL_RENDERER|glmark2 Score'
+    echo "-- llvmpipe baseline"
+    LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+        glmark2-es2-wayland -b build:duration=5 2>&1 | grep -iE 'GL_RENDERER|glmark2 Score'
+else
+    echo "glmark2-es2-wayland not installed"
+fi
+
+echo
+echo "== done"
