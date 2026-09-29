@@ -19,7 +19,10 @@
 	<project name="optee_os" path="optee_os"/>
 	<project name="u-boot" path="u-boot"/>
 	<project name="linux" path="linux" clone-depth="1"/>
-	<project name="buildroot" path="buildroot" revision="master"/>
+	<!-- Pinned: master moves and silently changes package versions (rsync 3.4.3
+	     needs kernel headers >= 5.6, which the Bootlin stable toolchain lacks). -->
+	<project name="buildroot" path="buildroot"
+		 revision="9d4d79f9aebd7974ecab60c9c335190ef974aece"/>
 	<project name="ubuntu" path="ubuntu" revision="main"/>
 	<project name="debian" path="debian" revision="main"/>
 	<project name="meta-opentina" path="meta-opentina" revision="main"/>

@@ -130,6 +130,12 @@ yellow() {
 	printf "\033[33m%s\033[39m\n" "$1"
 }
 
+# A pinned revision may be a commit sha, which git clone --branch rejects.
+_is_sha() {
+	case "$1" in *[!0-9a-f]*) return 1 ;; esac
+	[ ${#1} -ge 7 ] && [ ${#1} -le 40 ]
+}
+
 while IFS="$(printf '\t')" read -r relpath url revision clone_depth; do
 	[ "$relpath" ] || continue
 	dest="$OPENTINA_SOURCES_DIR/$relpath"
@@ -138,13 +144,18 @@ while IFS="$(printf '\t')" read -r relpath url revision clone_depth; do
 			yellow "skip clone (exists): $relpath"
 			continue
 		fi
-		if [ -n "$clone_depth" ]; then
+		if _is_sha "$revision"; then
+			blue "clone (full, pinned $revision) $relpath -> $dest"
+		elif [ -n "$clone_depth" ]; then
 			blue "clone (depth=$clone_depth) $relpath -> $dest"
 		else
 			blue "clone (full) $relpath -> $dest"
 		fi
 		mkdir -p "$(dirname -- "$dest")"
-		if [ -n "$clone_depth" ]; then
+		if _is_sha "$revision"; then
+			git clone "$url" "$dest"
+			git -C "$dest" checkout --detach "$revision"
+		elif [ -n "$clone_depth" ]; then
 			git clone --depth "$clone_depth" --branch "$revision" "$url" "$dest"
 		else
 			git clone --branch "$revision" "$url" "$dest"
@@ -157,7 +168,7 @@ while IFS="$(printf '\t')" read -r relpath url revision clone_depth; do
 		blue "sync $relpath"
 		git -C "$dest" fetch --tags origin
 		git -C "$dest" checkout "$revision"
-		git -C "$dest" pull --ff-only || true
+		_is_sha "$revision" || git -C "$dest" pull --ff-only || true
 	fi
 done < <(_manifest_records)
 
