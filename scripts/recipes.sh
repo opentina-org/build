@@ -466,6 +466,7 @@ build_ubuntu() {
 		docker buildx version >/dev/null 2>&1 &&
 		[ "${OPENTINA_UBUNTU_USE_BUILDX:-1}" != "0" ]; then
 		_ensure_qemu_binfmt_f "$arch"
+		OPENTINA_CUSTOM_DEBS_DIR="${outDir%/}/custom-debs" \
 		DESKTOP="$desktop" MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Ubuntu $profile rootfs (buildx) failed"
 	elif command -v docker >/dev/null 2>&1 &&
 		[ "${OPENTINA_UBUNTU_USE_DOCKER:-1}" != "0" ]; then
@@ -532,6 +533,7 @@ build_debian() {
 		docker buildx version >/dev/null 2>&1 &&
 		[ "${OPENTINA_DEBIAN_USE_BUILDX:-1}" != "0" ]; then
 		_ensure_qemu_binfmt_f "$arch"
+		OPENTINA_CUSTOM_DEBS_DIR="${outDir%/}/custom-debs" \
 		DESKTOP="$desktop" BASE_FLAVOR="$base_flavor" HOSTNAME="debian-$profile" SERIAL_FIX="${OPENTINA_DEBIAN_SERIAL_FIX:-0}" MAKE_EXT4=1 ARCH="$arch" ./docker/build-rootfs-buildx.sh "$release" || error "Debian $profile rootfs (buildx) failed"
 	elif command -v docker >/dev/null 2>&1 &&
 		[ "${OPENTINA_DEBIAN_USE_DOCKER:-1}" != "0" ]; then
@@ -894,3 +896,8 @@ clean_image() {
 	rm -f "$outDir"/boot0.fex
 	rm -f "$outDir"/rootfs.ext2
 }
+
+# Generic custom-package components (build_<repo> for forks under sources/).
+# Kept in its own file; see scripts/custom-pkg.sh for the conventions.
+source "$OPENTINA_BUILD_ROOT/scripts/custom-pkg.sh"
+_custom_pkg_register_all
