@@ -22,8 +22,13 @@ on:
         type: choice
         options:
           - pr
+          - daily
           - full
         default: full
+  schedule:
+    # Daily baseline: board x {buildroot, ubuntu, debian} x tee.
+    # Runs on the default branch only; releases stay tag-only.
+    - cron: "17 19 * * *"
 
 concurrency:
   group: images-${{ github.event.pull_request.number || github.ref }}
@@ -74,6 +79,15 @@ jobs:
                   for board, fs, tee in pairs
               ]
 
+          # Daily: board × {buildroot, ubuntu, debian} × tee. OpenWrt and Yocto
+          # join once their build times are comfortable in a nightly window.
+          daily_pairs = [
+              (board, fs, tee)
+              for board in boards
+              for fs in ["buildroot", "ubuntu", "debian"]
+              for tee in tees
+          ]
+
           # PR: demo × all rootfs/optee, plus demo buildroot/no-optee and a7a buildroot/optee.
           pr_pairs = [
               ("demo_aiot_a733_v3", "buildroot", "optee"),
@@ -94,6 +108,9 @@ jobs:
           if scope == "full":
               include = rows(full_pairs)
               label = "full"
+          elif scope == "daily" or event == "schedule":
+              include = rows(daily_pairs)
+              label = "daily"
           elif scope == "pr" or event == "pull_request":
               include = rows(pr_pairs)
               label = "pr"
@@ -237,7 +254,8 @@ jobs:
           path: ${{ runner.temp }}/image-artifact/
           if-no-files-found: error
           compression-level: 6
-          retention-days: 14
+          # Nightlies only need to outlive a day or two; keep them from piling up.
+          retention-days: ${{ github.event_name == 'schedule' && 7 || 14 }}
 
   release:
     name: GitHub Release ${{ github.ref_name }}
