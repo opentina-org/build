@@ -13,7 +13,7 @@
 #   neither     -> error: nothing this builder knows how to do
 #
 # Artifacts land in output/<BOARD>/custom-debs/ for the rootfs injection step
-# (OPENTINA_CUSTOM_DEBS, planned; the OEM staging path is the model).
+# (OPENTINA_CUSTOM_DEBS_DIR, consumed by the debian/ubuntu buildx scripts).
 #
 # Versioning rule for packages built this way: the debian/changelog version
 # must carry a ~opentina suffix and a git short SHA so packages stay
