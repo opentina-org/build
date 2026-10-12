@@ -17,8 +17,9 @@ start() {
 	mkdir -p "$XDG_RUNTIME_DIR"
 	chmod 0700 "$XDG_RUNTIME_DIR"
 	printf 'Starting weston: '
-	start-stop-daemon -S -q -m -b -p "$PIDFILE" -x "$DAEMON" -- \
-		--backend=drm-backend.so --config=/etc/xdg/weston/weston.ini
+	# Log to a file so a compositor that dies at boot leaves evidence.
+	start-stop-daemon -S -q -m -b -p "$PIDFILE" -x /bin/sh -- -c \
+		"exec $DAEMON --backend=drm-backend.so --config=/etc/xdg/weston/weston.ini >>/var/log/weston.log 2>&1"
 	echo "OK"
 }
 
