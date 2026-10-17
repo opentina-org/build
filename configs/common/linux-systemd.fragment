@@ -34,6 +34,7 @@ CONFIG_HID=y
 CONFIG_HID_GENERIC=y
 CONFIG_USB_HID=y
 
-# vkms for headless GUI-stack verification
+# No vkms: built in, it probes before the SoC display engine and becomes
+# card0, so weston renders to a virtual output and HDMI stays black.
 CONFIG_DRM=y
-CONFIG_DRM_VKMS=y
+# CONFIG_DRM_VKMS is not set
