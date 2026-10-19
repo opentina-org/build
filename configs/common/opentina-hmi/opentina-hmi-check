@@ -9,7 +9,7 @@ set -u
 QUICK=0
 [ "${1:-}" = "--quick" ] && QUICK=1
 
-. /etc/default/opentina-hmi 2>/dev/null || true
+[ -r /etc/default/opentina-hmi ] && . /etc/default/opentina-hmi
 export PVR_I_WANT_A_BROKEN_VULKAN_DRIVER="${PVR_I_WANT_A_BROKEN_VULKAN_DRIVER:-1}"
 : "${XDG_RUNTIME_DIR:=/run/opentina-hmi}"
 export XDG_RUNTIME_DIR
