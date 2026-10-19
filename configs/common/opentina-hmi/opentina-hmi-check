@@ -49,7 +49,7 @@ if have systemctl; then
     systemctl is-active opentina-weston.service 2>&1
 else
     # busybox init images (Buildroot) have no systemd; report the process instead.
-    pgrep -l weston 2>/dev/null || echo "weston not running"
+    ps | grep "[w]eston" || echo "weston not running"
 fi
 if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
     echo "wayland socket: $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY present"
