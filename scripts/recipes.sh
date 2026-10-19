@@ -166,6 +166,9 @@ build_linux() {
 	make ARCH=arm64 CROSS_COMPILE="$cc" "$LINUX_CONFIG" || error "Linux defconfig failed"
 
 	local kfrags=()
+	local commonfrag="${LINUX_COMMON_FRAGMENT:-$OPENTINA_BUILD_ROOT/configs/common/linux-common.fragment}"
+	[ -f "$commonfrag" ] || error "Missing common kernel fragment: $commonfrag"
+	kfrags+=("$commonfrag")
 	if opentina_optee_enabled; then
 		local opteefrag="${LINUX_OPTEE_FRAGMENT:-$OPENTINA_BUILD_ROOT/configs/common/linux-optee.fragment}"
 		[ -f "$opteefrag" ] || error "Missing kernel fragment for OP-TEE: $opteefrag"

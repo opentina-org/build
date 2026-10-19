@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2019-2026 Allwinner Technology Co., Ltd.
+# Kernel options merged for every rootfs on top of the board defconfig.
+
+# No vkms: built in, it probes before the SoC display engine and becomes
+# card0, so weston renders to a virtual output and HDMI stays black.
+CONFIG_DRM=y
+# CONFIG_DRM_VKMS is not set
