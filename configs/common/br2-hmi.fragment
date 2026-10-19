@@ -12,6 +12,9 @@
 # once Buildroot moves past 26.0.x.
 BR2_GLOBAL_PATCH_DIR="../../configs/common/br2-global-patches"
 
+# gst-scenarios.sh wraps every pipeline in timeout(1); not in the default busybox config.
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="../../configs/common/busybox-hmi.fragment"
+
 # Mesa's precompiled shader tooling needs a host Rust toolchain. C++ comes from
 # the external Bootlin toolchain via BR2_INSTALL_LIBSTDCPP in the base defconfig.
 BR2_PACKAGE_HOST_RUSTC=y

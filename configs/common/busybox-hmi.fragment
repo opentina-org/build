@@ -1,0 +1,2 @@
+# busybox applets the HMI demo scripts need on top of Buildroot's default config.
+CONFIG_TIMEOUT=y
