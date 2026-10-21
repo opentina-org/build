@@ -46,7 +46,10 @@ fi
 
 sec "compositor"
 if have systemctl; then
-    systemctl is-active opentina-weston.service 2>&1
+    # Debian/Ubuntu ship opentina-weston.service, Yocto uses weston-init's weston.service.
+    for u in opentina-weston.service weston.service; do
+        systemctl list-unit-files "$u" 2>/dev/null | grep -q "^$u" && { systemctl is-active "$u" 2>&1; break; }
+    done
 else
     # busybox init images (Buildroot) have no systemd; report the process instead.
     ps | grep "[w]eston" || echo "weston not running"
@@ -60,7 +63,7 @@ have wayland-info && wayland-info 2>&1 | grep -E 'interface:.*(wl_output|zwp_lin
 
 sec "audio"
 ls /dev/snd/ 2>&1
-have aplay && aplay -l 2>&1 | head -5
+have aplay && aplay -l 2>&1 | head -n 5
 
 [ "$QUICK" = "1" ] && { echo; echo "== done (quick)"; exit 0; }
 
