@@ -6,3 +6,10 @@
 # card0, so weston renders to a virtual output and HDMI stays black.
 CONFIG_DRM=y
 # CONFIG_DRM_VKMS is not set
+
+# USB ethernet dongles (stopgap while GMAC bringup is unfinished). The minimal
+# defconfig already has NET/NETDEVICES, so Buildroot images get them too.
+CONFIG_USB_USBNET=y
+CONFIG_USB_NET_AX88179_178A=y
+CONFIG_USB_RTL8152=y
+CONFIG_USB_NET_CDCETHER=y
