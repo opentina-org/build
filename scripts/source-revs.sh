@@ -32,6 +32,8 @@ emit_repo() {
 		ref=detached
 	fi
 	url="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
+	# CI clones through an insteadOf rewrite that embeds the token; never record it.
+	url="$(printf '%s' "$url" | sed -E 's#^([a-z+]+://)[^/@]*:[^/@]*@#\1#')"
 	printf '%s\t%s\t%s\t%s\t%s\n' "$path_label" "$commit" "$abbrev" "$ref" "$url"
 }
 
