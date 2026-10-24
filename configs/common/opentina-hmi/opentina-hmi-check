@@ -61,6 +61,24 @@ else
 fi
 have wayland-info && wayland-info 2>&1 | grep -E 'interface:.*(wl_output|zwp_linux_dmabuf|xdg_wm_base)' | head
 
+sec "x11 (xwayland)"
+wpid=$(pidof weston 2>/dev/null | cut -d' ' -f1)
+if [ -z "$wpid" ]; then
+    echo "weston not running"
+else
+    # Xwayland is spawned by weston with its auth cookie; clients must run with
+    # weston's DISPLAY/XAUTHORITY and, when weston is a system user, as it.
+    wenv=$(tr '\0' '\n' < /proc/$wpid/environ 2>/dev/null | grep -E '^(XAUTHORITY|XDG_RUNTIME_DIR|DISPLAY|WAYLAND_DISPLAY)=' | tr '\n' ' ')
+    wuser=$(stat -c %U /proc/$wpid 2>/dev/null)
+    xcmd="export $wenv DISPLAY=\${DISPLAY:-:0}; xdpyinfo 2>&1 | grep -E '^name|dimensions|Authorization|unable'; glxinfo -B 2>&1 | grep -E 'renderer string|OpenGL version|direct rendering|Authorization|Error'"
+    if [ -n "$wuser" ] && [ "$wuser" != "$(id -un)" ]; then
+        echo "running as $wuser"
+        su "$wuser" -s /bin/sh -c "$xcmd"
+    else
+        sh -c "$xcmd"
+    fi
+fi
+
 sec "audio"
 ls /dev/snd/ 2>&1
 have aplay && aplay -l 2>&1 | head -n 5
