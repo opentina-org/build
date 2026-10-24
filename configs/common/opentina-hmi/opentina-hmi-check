@@ -54,10 +54,15 @@ else
     # busybox init images (Buildroot) have no systemd; report the process instead.
     ps | grep "[w]eston" || echo "weston not running"
 fi
-if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
-    echo "wayland socket: $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY present"
+# weston-init's profile.d exports the socket as an absolute path.
+case "$WAYLAND_DISPLAY" in
+    /*) wsock="$WAYLAND_DISPLAY" ;;
+    *)  wsock="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ;;
+esac
+if [ -S "$wsock" ]; then
+    echo "wayland socket: $wsock present"
 else
-    echo "wayland socket: MISSING at $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    echo "wayland socket: MISSING at $wsock"
 fi
 have wayland-info && wayland-info 2>&1 | grep -E 'interface:.*(wl_output|zwp_linux_dmabuf|xdg_wm_base)' | head
 
