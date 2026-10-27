@@ -11,17 +11,38 @@ BR2_LINUX_KERNEL=n
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
 BR2_TARGET_ROOTFS_EXT2_SIZE="1024M"
-# OP-TEE userspace (libteec + tee-supplicant). BL32 is the OpenTina optee component,
-# not BR2_TARGET_OPTEE_OS. RPMB emulation stays on until eMMC RPMB is wired.
+# OP-TEE userspace (libteec + tee-supplicant + xtest + examples).
+# optee-test/examples need the TA devkit, which only BR2_TARGET_OPTEE_OS provides,
+# so it is enabled with CORE off: no competing tee.bin is built or installed, and
+# BL32 stays the OpenTina optee component. SERVICES off keeps the in-tree service
+# TAs (avb, pkcs11, ...) out of the rootfs; ta_dev_kit still builds them, which is
+# why the signing script needs NEEDS_PYTHON_CRYPTOGRAPHY.
+# RPMB emulation stays on until eMMC RPMB is wired.
 BR2_INSTALL_LIBSTDCPP=y
 BR2_PACKAGE_OPENSSL=y
 BR2_PACKAGE_LIBOPENSSL=y
+BR2_TARGET_OPTEE_OS=y
+BR2_TARGET_OPTEE_OS_CUSTOM_TARBALL=y
+BR2_TARGET_OPTEE_OS_CUSTOM_TARBALL_LOCATION="https://github.com/opentina-org/optee_os/archive/45dea996294229662c58532fd6024bc1d1f2a97a/optee_os-45dea996294229662c58532fd6024bc1d1f2a97a.tar.gz"
+BR2_TARGET_OPTEE_OS_PLATFORM="sunxi"
+BR2_TARGET_OPTEE_OS_PLATFORM_FLAVOR="sun60i_a733"
+BR2_TARGET_OPTEE_OS_CORE=n
+BR2_TARGET_OPTEE_OS_SERVICES=n
+BR2_TARGET_OPTEE_OS_SDK=y
+BR2_TARGET_OPTEE_OS_NEEDS_PYTHON_CRYPTOGRAPHY=y
+# Pin client/test/examples to the 4.6.0 tarballs too; the defaults would silently
+# pull 4.9.0 against a 4.6.0 core. Hashes live in BR2_GLOBAL_PATCH_DIR below,
+# which BR2_DOWNLOAD_FORCE_CHECK_HASHES=y requires for any custom tarball.
 BR2_PACKAGE_OPTEE_CLIENT=y
-BR2_PACKAGE_OPTEE_CLIENT_4_6_0=y
+BR2_PACKAGE_OPTEE_CLIENT_CUSTOM_TARBALL=y
+BR2_PACKAGE_OPTEE_CLIENT_CUSTOM_TARBALL_LOCATION="https://github.com/OP-TEE/optee_client/archive/4.6.0/optee_client-4.6.0.tar.gz"
 BR2_PACKAGE_OPTEE_TEST=y
-BR2_PACKAGE_OPTEE_TEST_4_6_0=y
+BR2_PACKAGE_OPTEE_TEST_CUSTOM_TARBALL=y
+BR2_PACKAGE_OPTEE_TEST_CUSTOM_TARBALL_LOCATION="https://github.com/OP-TEE/optee_test/archive/4.6.0/optee_test-4.6.0.tar.gz"
 BR2_PACKAGE_OPTEE_EXAMPLES=y
-BR2_PACKAGE_OPTEE_EXAMPLES_4_6_0=y
+BR2_PACKAGE_OPTEE_EXAMPLES_CUSTOM_TARBALL=y
+BR2_PACKAGE_OPTEE_EXAMPLES_CUSTOM_TARBALL_LOCATION="https://github.com/linaro-swg/optee_examples/archive/4.6.0/optee_examples-4.6.0.tar.gz"
+BR2_GLOBAL_PATCH_DIR="../../configs/common/br2-global-patches"
 BR2_ROOTFS_USERS_TABLES="../../configs/common/br2-users-optee.txt"
 # Install all Linux *.ko from .staging-linux-modules (path relative to Buildroot top).
 BR2_ROOTFS_POST_BUILD_SCRIPT="../../configs/common/br2-post-build.sh"
