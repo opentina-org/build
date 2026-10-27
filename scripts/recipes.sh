@@ -886,6 +886,10 @@ build_image() {
 	else
 		error "genimage not found on host. Install genimage, or pre-build $OPENTINA_BUILD_ROOT/docker/Dockerfile -> opentina-buildenv:24.04."
 	fi
+
+	# Record the source revisions behind this image (CI does the same step).
+	OPENTINA_SOURCES_DIR="$sdkRoot" "$OPENTINA_BUILD_ROOT/scripts/source-revs.sh" \
+		>"$outDir/SOURCE_REVS.txt" || echo "warning: SOURCE_REVS.txt not written" >&2
 }
 
 clean_image() {
