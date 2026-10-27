@@ -1,0 +1,54 @@
+From: Cheng Li <shiptux@gmail.com>
+Subject: [PATCH] syscall: only use openat2() when <linux/openat2.h> exists
+
+rsync 3.4.3 includes <linux/openat2.h> under a bare #ifdef __linux__ with no
+configure check. The header arrived in Linux 5.6, and the Bootlin stable
+aarch64 toolchain ships 5.4 kernel headers, so the build dies on syscall.c.
+
+Gate the include and the two openat2 code paths on __has_include. Dropping
+them leaves the portable per-component O_NOFOLLOW walk, which is what this
+file already falls back to at run time when openat2() returns ENOSYS.
+
+Upstream-Status: Pending
+---
+ syscall.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+--- a/syscall.c
++++ b/syscall.c
+@@ -35,7 +35,16 @@
+ 
+ #ifdef __linux__
+ #include <sys/syscall.h>
+-#include <linux/openat2.h>
++/* openat2() landed in Linux 5.6; toolchains with older kernel headers (e.g.
++ * the Bootlin stable aarch64 set, 5.4) have no <linux/openat2.h>. Fall back to
++ * the portable per-component walk below, exactly as this file already does at
++ * run time when the syscall returns ENOSYS. */
++#if defined __has_include
++# if __has_include(<linux/openat2.h>)
++#  include <linux/openat2.h>
++#  define HAVE_LINUX_OPENAT2_H 1
++# endif
++#endif
+ #endif
+ 
+ #include "ifuncs.h"
+@@ -1691,7 +1700,7 @@
+ 	return 0;
+ }
+ 
+-#ifdef __linux__
++#ifdef HAVE_LINUX_OPENAT2_H
+ static int secure_relative_open_linux(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+ 	struct open_how how;
+@@ -1791,7 +1800,7 @@
+ 		return -1;
+ 	}
+ 
+-#ifdef __linux__
++#ifdef HAVE_LINUX_OPENAT2_H
+ 	{
+ 		int fd = secure_relative_open_linux(basedir, relpath, flags, mode);
+ 		/* ENOSYS = kernel < 5.6 doesn't have the syscall even though

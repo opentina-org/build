@@ -10,3 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname -- "$0")" && pwd)"
 if [ "${OPENTINA_OPTEE:-1}" != "0" ]; then
 	bash "$SCRIPT_DIR/install-optee-ta.sh" "$TARGET_DIR"
 fi
+
+# Allow root password login over SSH (only account is root, see
+# BR2_TARGET_GENERIC_ROOT_PASSWD; upstream default is prohibit-password).
+if [ -f "$TARGET_DIR/etc/ssh/sshd_config" ]; then
+	sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' \
+		"$TARGET_DIR/etc/ssh/sshd_config"
+fi
