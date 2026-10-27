@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# PR: 7-job subset (demo × 5 rootfs/optee + demo buildroot/no-optee + a7a buildroot/optee).
+# PR / push to tina-dev: 7-job subset (demo × 5 rootfs/optee + demo buildroot/no-optee + a7a buildroot/optee).
 # Tag / workflow_dispatch(full): complete board × rootfs × TEE matrix.
 # Tag push: GitHub Release. Incomplete matrix is published as prerelease with a missing list.
 name: Images
@@ -13,6 +13,8 @@ on:
       - LICENSE
       - .gitignore
   push:
+    branches:
+      - tina-dev
     tags:
       - "*"
   workflow_dispatch:
@@ -48,6 +50,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           MATRIX_SCOPE: ${{ github.event.inputs.matrix || '' }}
+          REF: ${{ github.ref }}
         run: |
           python3 <<'PY'
           import json, os
@@ -65,6 +68,7 @@ jobs:
           flags = {"optee": "--optee", "no-optee": "--no-optee"}
 
           event = os.environ.get("EVENT_NAME", "")
+          ref = os.environ.get("REF", "")
           scope = os.environ.get("MATRIX_SCOPE", "").strip()
 
           def rows(pairs):
@@ -111,7 +115,7 @@ jobs:
           elif scope == "daily" or event == "schedule":
               include = rows(daily_pairs)
               label = "daily"
-          elif scope == "pr" or event == "pull_request":
+          elif scope == "pr" or event == "pull_request" or (event == "push" and not ref.startswith("refs/tags/")):
               include = rows(pr_pairs)
               label = "pr"
           else:
