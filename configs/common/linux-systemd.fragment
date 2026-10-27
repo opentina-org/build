@@ -19,12 +19,6 @@ CONFIG_NETDEVICES=y
 CONFIG_STMMAC_ETH=y
 CONFIG_DWMAC_SUN55I=y
 
-# USB ethernet dongles (stopgap while GMAC bringup is unfinished)
-CONFIG_USB_USBNET=y
-CONFIG_USB_NET_AX88179_178A=y
-CONFIG_USB_RTL8152=y
-CONFIG_USB_NET_CDCETHER=y
-
 # USB keyboard/mouse input. Keep this built in: distro rootfs images currently
 # do not install a matching /lib/modules tree for the external BSP kernel.
 CONFIG_INPUT=y
@@ -33,7 +27,3 @@ CONFIG_HID_SUPPORT=y
 CONFIG_HID=y
 CONFIG_HID_GENERIC=y
 CONFIG_USB_HID=y
-
-# vkms for headless GUI-stack verification
-CONFIG_DRM=y
-CONFIG_DRM_VKMS=y
