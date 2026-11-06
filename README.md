@@ -68,6 +68,23 @@ cd /path/to/build    # 本 README 所在目录
 
 OP-TEE 为**整项目可选**（默认开）。开启时启动链：`BROM → boot0 → SPL FIT（BL31 + BL32/OP-TEE + U-Boot）→ TF-A → OP-TEE → U-Boot → Linux`。关闭时（`--no-optee` / `OPENTINA_OPTEE=0`）：`BROM → boot0 → SPL FIT（BL31 + U-Boot）→ TF-A → U-Boot → Linux`。
 
+整链 `build` **默认断点续编**：仅当 `output/<BOARD>/.done.<组件>` 里记录的**源码/配置指纹**与当前一致时才跳过。改了 `sources/` 或相关 config/fragment 会自动重编该组件，并清掉下游（例如改 linux → 重编 bootfs / rootfs / image）。组件内部仍走各自的增量 `make`。换 rootfs / profile / OP-TEE 时也会清掉 `.done.*`。
+
+---
+
+## 增量编译与断点续编
+
+| 方式 | 行为 |
+|------|------|
+| `./build.sh <BOARD> build` | 整链；**默认 resume**：跳过指纹仍匹配的组件 |
+| `./build.sh --force <BOARD> build` | 强制重编所选组件（忽略 `.done.*`） |
+| `./build.sh --no-resume <BOARD> build` | 同「不跳过」语义（整链） |
+| `./build.sh <BOARD> build linux bootfs image` | **显式组件默认重编**这些组件（不跳过） |
+| `./build.sh --resume <BOARD> build linux` | 显式组件也按指纹决定是否跳过 |
+| `./build.sh <BOARD> status` | 查看各组件 current / stale / pending |
+
+`.done.<comp>` 内是指纹（不是空文件），覆盖：`sources/` 对应树、板级/common 配置与补丁，以及本仓库的 `scripts/recipes.sh` 等配方脚本。改 build 仓配方或相关 `configs/common/*` 也会使组件变 stale。`.build-meta` 记录 rootfs / profile / optee。ATF 仅在 `SPD`（opteed ↔ none）变化时 `clean`，同 SPD 下保持增量链接。
+
 ---
 
 ## OP-TEE（整项目可选，默认开）
@@ -200,9 +217,8 @@ OP-TEE 为**整项目可选**（默认开）。开启时启动链：`BROM → bo
 ## `./build.sh` 命令总览
 
 所有子命令前可重复加 **`--docker`**（等价于本次执行启用容器），或单独使用 **`--docker-shell`**（见下文「Docker」）。  
-**`--optee` / `--no-optee`** 同样写在子命令之前，控制整条链是否编 OP-TEE（见下节）。  
-**`--profile <NAME>`** 也写在子命令之前，按当前 rootfs 写入对应变量（见下表）。OpenWrt 没有 profile。  
-**这些前缀必须出现在子命令之前**（解析后会被剥掉，再按下面语法处理）。`--docker` 会把 `--profile` 原样传进容器。
+**`--optee` / `--no-optee`**、**`--profile <NAME>`**、**`--force` / `--resume` / `--no-resume`** 同样写在子命令之前。OpenWrt 没有 profile。  
+**这些前缀必须出现在子命令之前**（解析后会被剥掉，再按下面语法处理）。`--docker` 会把 `--profile` / resume 相关旗标原样传进容器。
 
 | 用法 | 说明 |
 |------|------|
@@ -210,10 +226,12 @@ OP-TEE 为**整项目可选**（默认开）。开启时启动链：`BROM → bo
 | `./build.sh targets` 或 `./build.sh list` | 同上列表，仅打印后退出。 |
 | `./build.sh init [MANIFEST_XML]` | 按 XML 清单克隆/跳过已有仓库到 `sources/`（默认 `scripts/opentina-manifest.xml`）。 |
 | `./build.sh update [MANIFEST_XML]` | 当前分支与清单 `revision` 相同的仓库快进到 GitHub 上该分支最新提交；分支不同（含游离 HEAD）的仓库只打印、不改动。 |
-| `./build.sh <BOARD_NAME> build [COMPONENT…]` | 构建；未写 `COMPONENT` 时按顺序构建全部组件。 |
+| `./build.sh <BOARD_NAME> build [COMPONENT…]` | 构建；未写 `COMPONENT` 时整链并**默认 resume**。 |
 | `./build.sh <BOARD_NAME> clean [COMPONENT…]` | 清理对应组件及 `.done` 标记。 |
-| `./build.sh <BOARD_NAME> <ROOTFS> build …` | 显式指定 rootfs 后再 `build` / `clean`（见下表）。 |
+| `./build.sh <BOARD_NAME> status` | 查看 `.done.*`、指纹与镜像路径。 |
+| `./build.sh <BOARD_NAME> <ROOTFS> build …` | 显式指定 rootfs 后再 `build` / `clean` / `status`（见下表）。 |
 | `./build.sh --profile <NAME> <BOARD_NAME> [ROOTFS] build …` | 选择该 rootfs 的 profile。 |
+| `./build.sh --force <BOARD_NAME> build` | 忽略 `.done.*`，强制重编。 |
 
 **`--profile` 与各 rootfs**
 
@@ -258,9 +276,9 @@ OP-TEE 为**整项目可选**（默认开）。开启时启动链：`BROM → bo
 | `yocto` | **Yocto rootfs**：bitbake **`opentina-image-minimal`** / **`-qt`**，ext4 拷贝为 `rootfs.ext2`（`OPENTINA_ROOTFS=yocto` 时替代 `br2`） |
 | `openwrt` | **OpenWrt rootfs**：取 `bin/targets/…/openwrt-*-rootfs.tar.gz` 经 `mkfs.ext4 -d` 转为 `rootfs.ext2`（`OPENTINA_ROOTFS=openwrt` 时替代 `br2`） |
 | `bootfs` | 启动用 FAT 目录树（依赖 `linux`） |
-| `image` | `genimage` 生成 `sdcard.img` 等（依赖 `bootfs`、`uboot`，以及 `br2` / `ubuntu` / `debian` / `yocto` / `openwrt`） |
+| `image` | `genimage` 生成 `sdcard.img`（依赖 `bootfs`、`uboot`，以及 `br2` / `ubuntu` / `debian` / `yocto` / `openwrt`） |
 
-依赖不满足时会报错退出（要求 `output/<BOARD>/.done.<依赖组件>` 存在）。
+依赖不满足时会报错退出（要求 `output/<BOARD>/.done.<依赖组件>` 存在）。Resume 跳过某组件时仍要求其依赖的 `.done.*` 已存在。
 
 **并行数**
 
@@ -341,7 +359,7 @@ export OPENTINA_DOCKER=1
 | 路径 | 说明 |
 |------|------|
 | `sources/` | `trusted-firmware-a`、`u-boot`、`linux`、`buildroot`、`ubuntu`、`debian`、`meta-opentina`、`yocto/`（Yocto 工作区，由 init 生成）、`awbin`、`docs` 等（由 manifest 决定；根目录 `.gitignore` 已忽略） |
-| `output/<BOARD_NAME>/` | 内核、dtb、`rootfs.ext2`、`u-boot.fex`、`boot.img`、`sdcard.img`、`.done.*` 等 |
+| `output/<BOARD_NAME>/` | 内核、dtb、`rootfs.ext2`、`u-boot.fex`、`boot.img`、`sdcard.img`、`.done.*`、`.build-meta` 等 |
 | `configs/<板级目录>/` | `config`、`partitions.cfg`（`BOARD_NAME` 可与目录名不同） |
 | `scripts/` | `recipes.sh`、`repo_clone.sh`、`docker-exec.sh`、`opentina-boards.sh` 等 |
 | `docker/Dockerfile` | 默认构建环境镜像定义 |
