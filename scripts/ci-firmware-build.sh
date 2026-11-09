@@ -1,42 +1,191 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Component-only CI (no sdcard.img). Used by firmware-component.yml.
-# Coverage follows the build-repo PR subset: demo × rootfs/optee, demo
-# buildroot/no-optee, a7a buildroot/optee — plus linux OpenWrt fragments.
+# Each invocation is one build. `matrix` prints the job list; `run` builds one.
 #
-# Environment:
-#   OPENTINA_BUILD_ROOT  Checkout of the build repo
-#   FIRMWARE_SRC         Checkout of the PR (default: $PWD)
-#   FIRMWARE_PROJECT     linux | u-boot | optee_os | trusted-firmware-a |
-#                        awbin | buildroot | ubuntu | debian | openwrt |
-#                        meta-opentina
-#   OPENTINA_GH_TOKEN    Optional PAT for private opentina-org clones
+# Coverage follows the build-repo PR subset: demo × rootfs/optee, demo
+# buildroot/no-optee, a7a buildroot/optee — plus linux OpenWrt fragments —
+# and, for rootfs repos, every profile. Rootfs jobs also pack sdcard.img.
+#
+# Environment (run):
+#   OPENTINA_BUILD_ROOT    Checkout of the build repo
+#   FIRMWARE_SRC           Checkout of the PR (default: $PWD)
+#   OPENTINA_GH_TOKEN      Optional PAT for private opentina-org clones
+#   OPENTINA_CI_BOARD      demo_aiot_a733_v3 | radxa_a7a
+#   OPENTINA_CI_ROOTFS     buildroot | ubuntu | debian | openwrt | yocto
+#   OPENTINA_CI_TEE        optee | no-optee
+#   OPENTINA_CI_PROFILE    buildroot lite|hmi; ubuntu/debian lite|desktop;
+#                          yocto minimal|qt|hmi. Empty when the target has none.
+#   OPENTINA_CI_COMPONENTS Words passed to build.sh after `build` (e.g. "br2"
+#                          or "optee atf uboot")
+#   OPENTINA_CI_PACK_IMAGE true: clone the boot chain and also build
+#                          optee/atf/uboot/linux/bootfs/image so sdcard.img exists
 
 set -euo pipefail
 
 script_dir="$(dirname -- "$(realpath -- "$0")")"
 OPENTINA_BUILD_ROOT="${OPENTINA_BUILD_ROOT:-$(dirname -- "$script_dir")}"
 export OPENTINA_BUILD_ROOT
+
+usage() {
+	echo "usage: ci-firmware-build.sh matrix <project> | run <project>" >&2
+	exit 2
+}
+
+mode="${1:-}"
+case "$mode" in
+matrix | run) shift ;;
+*) usage ;;
+esac
+
+normalize_project() {
+	case "$1" in
+	linux) printf '%s\n' linux ;;
+	u-boot | uboot) printf '%s\n' u-boot ;;
+	optee_os | optee) printf '%s\n' optee_os ;;
+	trusted-firmware-a | atf | tf-a) printf '%s\n' trusted-firmware-a ;;
+	awbin) printf '%s\n' awbin ;;
+	buildroot | br2) printf '%s\n' buildroot ;;
+	ubuntu) printf '%s\n' ubuntu ;;
+	debian) printf '%s\n' debian ;;
+	openwrt) printf '%s\n' openwrt ;;
+	meta-opentina | yocto) printf '%s\n' meta-opentina ;;
+	*)
+		echo "ci-firmware-build: unsupported project ${1:-<empty>}" >&2
+		exit 1
+		;;
+	esac
+}
+
+project="$(normalize_project "${1:-${FIRMWARE_PROJECT:-}}")"
+
+if [ "$mode" = matrix ]; then
+	PROJECT="$project" python3 - <<'PY'
+import json, os
+
+project = os.environ["PROJECT"]
+demo = "demo_aiot_a733_v3"
+a7a = "radxa_a7a"
+boards = [demo, a7a]
+short = {demo: "demo", a7a: "a7a"}
+
+def row(board, rootfs, tee, components, profile="", ccache=True, yocto=False, show_rootfs=False, pack_image=False):
+    parts = [short.get(board, board)]
+    if show_rootfs:
+        parts.append(rootfs)
+    parts.append(tee)
+    if profile:
+        parts.append(profile)
+    return {
+        "label": " / ".join(parts),
+        "project": project,
+        "board": board,
+        "rootfs": rootfs,
+        "tee": tee,
+        "profile": profile,
+        "components": components,
+        "ccache": "true" if ccache else "false",
+        "yocto": "true" if yocto else "false",
+        "pack_image": "true" if pack_image else "false",
+    }
+
+rows = []
+if project == "linux":
+    for rootfs, tees in (
+        ("buildroot", ("optee", "no-optee")),
+        ("ubuntu", ("optee",)),
+        ("openwrt", ("optee",)),
+    ):
+        for tee in tees:
+            for board in boards:
+                rows.append(row(board, rootfs, tee, "linux", show_rootfs=True))
+elif project == "trusted-firmware-a":
+    for tee in ("optee", "no-optee"):
+        rows.append(row(demo, "buildroot", tee, "atf"))
+elif project == "optee_os":
+    rows.append(row(demo, "buildroot", "optee", "optee"))
+elif project in ("u-boot", "awbin"):
+    rows.append(row(demo, "buildroot", "optee", "optee atf uboot"))
+    rows.append(row(a7a, "buildroot", "optee", "optee atf uboot"))
+    rows.append(row(demo, "buildroot", "no-optee", "atf uboot"))
+elif project == "buildroot":
+    for profile in ("lite", "hmi"):
+        for board in boards:
+            rows.append(row(board, "buildroot", "optee", "br2", profile, pack_image=True))
+        rows.append(row(demo, "buildroot", "no-optee", "br2", profile, pack_image=True))
+elif project in ("ubuntu", "debian"):
+    for profile in ("lite", "desktop"):
+        for board in boards:
+            rows.append(row(board, project, "optee", project, profile, ccache=False, pack_image=True))
+elif project == "openwrt":
+    for board in boards:
+        rows.append(row(board, "openwrt", "optee", "openwrt", pack_image=True))
+elif project == "meta-opentina":
+    for profile in ("minimal", "qt", "hmi"):
+        for board in boards:
+            rows.append(row(board, "yocto", "optee", "yocto", profile, yocto=True, pack_image=True))
+else:
+    raise SystemExit(f"ci-firmware-build: no matrix for {project}")
+
+print(json.dumps({"include": rows}, separators=(",", ":")))
+PY
+	exit 0
+fi
+
+# run
 FIRMWARE_SRC="$(realpath -- "${FIRMWARE_SRC:-$PWD}")"
 sdkRoot="$OPENTINA_BUILD_ROOT/sources"
 export sdkRoot
 mkdir -p "$sdkRoot"
 
-project="${1:-${FIRMWARE_PROJECT:-}}"
-case "$project" in
-linux) project=linux ;;
-u-boot | uboot) project=u-boot ;;
-optee_os | optee) project=optee_os ;;
-trusted-firmware-a | atf | tf-a) project=trusted-firmware-a ;;
-awbin) project=awbin ;;
-buildroot | br2) project=buildroot ;;
-ubuntu) project=ubuntu ;;
-debian) project=debian ;;
-openwrt) project=openwrt ;;
-meta-opentina | yocto) project=meta-opentina ;;
+board="${OPENTINA_CI_BOARD:?ci-firmware-build: OPENTINA_CI_BOARD is required}"
+rootfs="${OPENTINA_CI_ROOTFS:?ci-firmware-build: OPENTINA_CI_ROOTFS is required}"
+tee="${OPENTINA_CI_TEE:?ci-firmware-build: OPENTINA_CI_TEE is required}"
+components="${OPENTINA_CI_COMPONENTS:?ci-firmware-build: OPENTINA_CI_COMPONENTS is required}"
+profile="${OPENTINA_CI_PROFILE:-}"
+
+case "$tee" in
+optee) tee_flag=--optee ;;
+no-optee) tee_flag=--no-optee ;;
 *)
-	echo "ci-firmware-build: unsupported project ${project:-<empty>}" >&2
+	echo "ci-firmware-build: tee must be optee or no-optee (got: $tee)" >&2
 	exit 1
+	;;
+esac
+
+case "$project" in
+buildroot)
+	case "$profile" in
+	lite | hmi) ;;
+	*)
+		echo "ci-firmware-build: buildroot profile must be lite or hmi (got: ${profile:-<empty>})" >&2
+		exit 1
+		;;
+	esac
+	;;
+ubuntu | debian)
+	case "$profile" in
+	lite | desktop) ;;
+	*)
+		echo "ci-firmware-build: $project profile must be lite or desktop (got: ${profile:-<empty>})" >&2
+		exit 1
+		;;
+	esac
+	;;
+meta-opentina)
+	case "$profile" in
+	minimal | qt | hmi) ;;
+	*)
+		echo "ci-firmware-build: yocto profile must be minimal, qt or hmi (got: ${profile:-<empty>})" >&2
+		exit 1
+		;;
+	esac
+	;;
+*)
+	if [ -n "$profile" ]; then
+		echo "ci-firmware-build: $project has no --profile (got: $profile)" >&2
+		exit 1
+	fi
 	;;
 esac
 
@@ -65,59 +214,25 @@ clone_dep() {
 }
 
 run_build() {
-	echo "========== $* =========="
-	"$OPENTINA_BUILD_ROOT/build.sh" "$@"
-}
-
-# Same kconfig, both boards (a7a mainly differs by DTB).
-linux_boards() {
-	local tee_flag="$1"
-	local rootfs="$2"
-	run_build "$tee_flag" demo_aiot_a733_v3 "$rootfs" build linux
-	run_build "$tee_flag" radxa_a7a "$rootfs" build linux
-}
-
-rootfs_boards() {
-	local tee_flag="$1"
-	local rootfs="$2"
-	local component="$3"
-	run_build "$tee_flag" demo_aiot_a733_v3 "$rootfs" build "$component"
-	run_build "$tee_flag" radxa_a7a "$rootfs" build "$component"
-}
-
-# Packs SPL FIT with awbin header + bootpackage.py (needs ATF, optional OP-TEE).
-build_uboot_pr() {
-	run_build --optee demo_aiot_a733_v3 buildroot build optee atf uboot
-	run_build --optee radxa_a7a buildroot build optee atf uboot
-	run_build --no-optee demo_aiot_a733_v3 buildroot build atf uboot
+	local -a cmd=("$OPENTINA_BUILD_ROOT/build.sh")
+	if [ -n "$profile" ]; then
+		cmd+=(--profile "$profile")
+	fi
+	echo "========== ${cmd[*]} $* =========="
+	"${cmd[@]}" "$@"
 }
 
 link_self "$project"
 
 case "$project" in
-linux)
-	# Unique kernel fragments, each followed by a7a (same Image, other DTB).
-	linux_boards --optee buildroot
-	linux_boards --no-optee buildroot
-	linux_boards --optee ubuntu
-	linux_boards --optee openwrt
-	;;
-trusted-firmware-a)
-	run_build --optee demo_aiot_a733_v3 buildroot build atf
-	run_build --no-optee demo_aiot_a733_v3 buildroot build atf
-	;;
-optee_os)
-	run_build --optee demo_aiot_a733_v3 buildroot build optee
-	;;
 u-boot)
 	clone_dep trusted-firmware-a
 	clone_dep optee_os
 	clone_dep awbin
-	build_uboot_pr
 	;;
 awbin)
-	for board in demo_aiot_a733_v3 radxa_a7a; do
-		boot0="$sdkRoot/awbin/bin/a733/$board/boot0_sdcard.fex"
+	for aw_board in demo_aiot_a733_v3 radxa_a7a; do
+		boot0="$sdkRoot/awbin/bin/a733/$aw_board/boot0_sdcard.fex"
 		[ -f "$boot0" ] || {
 			echo "ci-firmware-build: missing $boot0" >&2
 			exit 1
@@ -134,24 +249,21 @@ awbin)
 	clone_dep trusted-firmware-a
 	clone_dep optee_os
 	clone_dep u-boot
-	build_uboot_pr
-	;;
-buildroot)
-	rootfs_boards --optee buildroot br2
-	run_build --no-optee demo_aiot_a733_v3 buildroot build br2
-	;;
-ubuntu)
-	rootfs_boards --optee ubuntu ubuntu
-	;;
-debian)
-	rootfs_boards --optee debian debian
-	;;
-openwrt)
-	rootfs_boards --optee openwrt openwrt
-	;;
-meta-opentina)
-	rootfs_boards --optee yocto yocto
 	;;
 esac
 
-echo "component ok: $project"
+read -r -a comp_args <<< "$components"
+if [ "${OPENTINA_CI_PACK_IMAGE:-}" = true ]; then
+	# PR tree is the rootfs. Boot chain comes from tina-dev so the job can
+	# pack a flashable sdcard.img around that rootfs.
+	for dep in linux u-boot trusted-firmware-a optee_os awbin; do
+		clone_dep "$dep"
+	done
+	if [ "$tee" = optee ]; then
+		comp_args=(optee atf uboot linux "${comp_args[@]}" bootfs image)
+	else
+		comp_args=(atf uboot linux "${comp_args[@]}" bootfs image)
+	fi
+fi
+run_build "$tee_flag" "$board" "$rootfs" build "${comp_args[@]}"
+echo "component ok: $project $board $rootfs $tee ${profile:-default}"

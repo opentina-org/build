@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
-# Reusable component CI for firmware and rootfs repos. No sdcard.img.
+# Reusable component CI for firmware and rootfs repos.
 # Called from each source repo's .github/workflows/opentina-firmware.yml.
+# One job per build.sh invocation (board × tee × profile).
+# Rootfs jobs also pack sdcard.img and upload it as an artifact.
 name: OpenTina component
 
 on:
@@ -30,10 +32,40 @@ permissions:
   contents: read
 
 jobs:
+  prepare:
+    name: Matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Checkout build recipes
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.build_repo }}
+          ref: ${{ inputs.build_ref }}
+          path: build
+          token: ${{ secrets.token || github.token }}
+
+      - name: List builds
+        id: gen
+        env:
+          PROJECT_IN: ${{ inputs.project }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          name="${PROJECT_IN:-${REPO##*/}}"
+          json="$(build/scripts/ci-firmware-build.sh matrix "$name")"
+          echo "matrix=${json}" >> "$GITHUB_OUTPUT"
+          echo "$json" | python3 -m json.tool
+
   build:
-    name: ${{ inputs.project || github.event.repository.name }}
+    name: ${{ matrix.label }}
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       DEBIAN_FRONTEND: noninteractive
       OPENTINA_GH_TOKEN: ${{ secrets.token }}
@@ -51,37 +83,6 @@ jobs:
           path: build
           token: ${{ secrets.token || github.token }}
 
-      - name: Map project
-        id: map
-        env:
-          PROJECT_IN: ${{ inputs.project }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          name="${PROJECT_IN:-${REPO##*/}}"
-          ccache=true
-          yocto=false
-          case "$name" in
-          linux) p=linux ;;
-          u-boot | uboot) p=u-boot ;;
-          optee_os | optee) p=optee_os ;;
-          trusted-firmware-a | atf | tf-a) p=trusted-firmware-a ;;
-          awbin) p=awbin ;;
-          buildroot | br2) p=buildroot ;;
-          ubuntu) p=ubuntu; ccache=false ;;
-          debian) p=debian; ccache=false ;;
-          openwrt) p=openwrt ;;
-          meta-opentina | yocto) p=meta-opentina; yocto=true ;;
-          *)
-            echo "unsupported repo: $name" >&2
-            exit 1
-            ;;
-          esac
-          echo "project=$p" >> "$GITHUB_OUTPUT"
-          echo "ccache=$ccache" >> "$GITHUB_OUTPUT"
-          echo "yocto=$yocto" >> "$GITHUB_OUTPUT"
-          echo "building $p from $REPO @ ${GITHUB_SHA}"
-
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -90,7 +91,7 @@ jobs:
           df -hT / /mnt || df -hT /
 
       - name: Reclaim extra disk (Yocto)
-        if: steps.map.outputs.yocto == 'true'
+        if: matrix.yocto == 'true'
         run: |
           set -euo pipefail
           sudo rm -rf /usr/share/swift /usr/local/share/powershell \
@@ -117,7 +118,7 @@ jobs:
           df -hT / /mnt || df -hT /
 
       - name: Allow unprivileged user namespaces (Yocto)
-        if: steps.map.outputs.yocto == 'true'
+        if: matrix.yocto == 'true'
         run: |
           echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/99-bitbake-userns.conf
           sudo sysctl -p /etc/sysctl.d/99-bitbake-userns.conf
@@ -126,21 +127,66 @@ jobs:
         run: build/scripts/ci-install-deps.sh
 
       - uses: hendrikmuhs/ccache-action@v1.2
-        if: steps.map.outputs.ccache == 'true'
+        if: matrix.ccache == 'true'
         with:
-          key: component-${{ steps.map.outputs.project }}-${{ runner.os }}
+          key: component-${{ matrix.project }}-${{ matrix.rootfs }}-${{ matrix.profile || 'default' }}-${{ matrix.tee }}-${{ matrix.board }}-${{ runner.os }}
           restore-keys: |
-            component-${{ steps.map.outputs.project }}-${{ runner.os }}
+            component-${{ matrix.project }}-${{ matrix.rootfs }}-${{ matrix.profile || 'default' }}-
           max-size: 1G
 
-      - name: Build ${{ steps.map.outputs.project }}
+      - name: Build ${{ matrix.label }}
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           FIRMWARE_SRC: ${{ github.workspace }}/firmware
           OPENTINA_BUILD_ROOT: ${{ github.workspace }}/build
+          OPENTINA_CI_BOARD: ${{ matrix.board }}
+          OPENTINA_CI_ROOTFS: ${{ matrix.rootfs }}
+          OPENTINA_CI_TEE: ${{ matrix.tee }}
+          OPENTINA_CI_PROFILE: ${{ matrix.profile }}
+          OPENTINA_CI_COMPONENTS: ${{ matrix.components }}
+          OPENTINA_CI_PACK_IMAGE: ${{ matrix.pack_image }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.map.outputs.ccache }}" = true ]; then
+          if [ "${{ matrix.ccache }}" = true ]; then
             export PATH="/usr/lib/ccache:${PATH}"
           fi
-          exec "$OPENTINA_BUILD_ROOT/scripts/ci-firmware-build.sh" "${{ steps.map.outputs.project }}"
+          exec "$OPENTINA_BUILD_ROOT/scripts/ci-firmware-build.sh" run "${{ matrix.project }}"
+
+      - name: Stage sdcard image
+        if: matrix.pack_image == 'true'
+        run: |
+          set -euo pipefail
+          src="build/output/${{ matrix.board }}"
+          test -f "$src/sdcard.img"
+          printf '%s\n' "${{ matrix.tee }}" > "$src/OPTEE.txt"
+          (
+            cd "$src"
+            echo "tee=${{ matrix.tee }}"
+            echo "profile=${{ matrix.profile }}"
+            sha256sum sdcard.img
+            for f in u-boot.fex Image.gz rootfs.ext2 tee.bin *.dtb OPTEE.txt; do
+              [ -e "$f" ] || continue
+              sha256sum "$f"
+            done
+          ) | tee "$src/SHA256SUMS"
+          dst="${{ runner.temp }}/image-artifact"
+          mkdir -p "$dst"
+          cp -a "$src/sdcard.img" "$src/SHA256SUMS" "$src/OPTEE.txt" "$dst/"
+          if [ -f "$src/SOURCE_REVS.txt" ]; then
+            cp -a "$src/SOURCE_REVS.txt" "$dst/"
+          fi
+          cp -a "$src/u-boot.fex" "$src/Image.gz" "$dst/"
+          cp -a "$src"/*.dtb "$dst/"
+          if [ "${{ matrix.tee }}" = optee ]; then
+            cp -a "$src/tee.bin" "$dst/"
+          fi
+          ls -lh "$dst/sdcard.img"
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.pack_image == 'true'
+        with:
+          name: ${{ matrix.board }}-${{ matrix.rootfs }}${{ matrix.profile != '' && format('-{0}', matrix.profile) || '' }}-${{ matrix.tee }}
+          path: ${{ runner.temp }}/image-artifact/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 14

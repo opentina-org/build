@@ -34,7 +34,7 @@ clean_optee() {
 atfPath="$sdkRoot/trusted-firmware-a"
 
 build_atf() {
-	local cc spd
+	local cc spd prev
 	cc=$(opentina_cross_compile) || error "Set OPENTINA_CROSS_COMPILE or install gcc-aarch64-linux-gnu (see build2/scripts/build-sdcard-image.sh)."
 
 	cd "$atfPath"
@@ -46,11 +46,17 @@ build_atf() {
 		# No BL32: BL31 returns directly to BL33 (U-Boot).
 		spd=none
 	fi
-	# Always clean: TF-A incremental make does not rebuild plat objects when
-	# only SPD= changes. A leftover sunxi_bl31_setup.o from SPD=none keeps
+	# TF-A incremental make does not rebuild plat objects when only SPD=
+	# changes. A leftover sunxi_bl31_setup.o from SPD=none keeps
 	# bl32_image_ep_info.pc == 0 while still linking opteed →
-	# "Error initializing runtime service opteed_fast".
-	make PLAT=sun60i_a733 CROSS_COMPILE="$cc" clean || true
+	# "Error initializing runtime service opteed_fast". Clean only when the
+	# stamped SPD differs (or is missing) so same-SPD rebuilds stay incremental.
+	prev=""
+	[ -f "${outDir%/}/.atf-spd" ] && prev="$(cat "${outDir%/}/.atf-spd")"
+	if [ "$prev" != "$spd" ]; then
+		echo "ATF: SPD $prev → $spd; cleaning plat objects"
+		make PLAT=sun60i_a733 CROSS_COMPILE="$cc" clean || true
+	fi
 	if [ "$spd" = opteed ]; then
 		make PLAT=sun60i_a733 SPD=opteed BL32_BASE=0x40000000 CROSS_COMPILE="$cc" all \
 			|| error "ATF build failed"
